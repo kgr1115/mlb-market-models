@@ -1,0 +1,36 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Local caches
+*.sqlite
+*.sqlite-journal
+bbp_cache.sqlite
+data/cache/
+dk_sample.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Node (web frontend build artifacts)
+web/frontend/node_modules/
+web/frontend/dist/
+web/frontend/.vite/
+
+# Playwright
+.playwright/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

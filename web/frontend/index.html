@@ -1,0 +1,1353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MLB Betting Predictor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Recharts UMD needs prop-types as a peer dep; load it BEFORE recharts -->
+  <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    // Show errors on-page so the UI never silently blanks out again.
+    window.addEventListener("error", function (e) {
+      var root = document.getElementById("root");
+      if (!root) return;
+      var msg = (e && (e.message || e.error && e.error.message)) || "Unknown error";
+      var src = (e && e.filename) || "";
+      root.innerHTML = '<div style="padding:32px;font-family:system-ui;color:#fca5a5;">' +
+        '<div style="font-size:16px;margin-bottom:8px;">UI failed to start</div>' +
+        '<div style="font-family:monospace;font-size:12px;color:#e5e7eb;background:#1f2937;padding:12px;border-radius:6px;white-space:pre-wrap;">' +
+        String(msg).replace(/[<>&]/g, function (c) { return { "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]; }) +
+        (src ? "\n\n" + src : "") + "</div>" +
+        '<div style="font-size:12px;color:#9ca3af;margin-top:12px;">Open DevTools → Console for the full stack.</div></div>';
+    });
+  </script>
+  <style>
+    :root { color-scheme: dark; }
+    body { background: #0b0f17; color: #e6e8eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .mono { font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+    .card { background: linear-gradient(180deg, #141a26 0%, #10151f 100%); border: 1px solid #1e2735; }
+    .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:9999px; font-size:11px; line-height:1.4; }
+    .scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: #2a3344; border-radius: 4px; }
+    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .glow-green { box-shadow: 0 0 0 1px rgba(34,197,94,0.35) inset, 0 0 14px rgba(34,197,94,0.10); }
+    .glow-red { box-shadow: 0 0 0 1px rgba(239,68,68,0.35) inset, 0 0 14px rgba(239,68,68,0.10); }
+    .glow-amber { box-shadow: 0 0 0 1px rgba(245,158,11,0.35) inset; }
+    @keyframes pulseDot { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+    .live-dot { animation: pulseDot 1.6s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div style="padding:48px;text-align:center;color:#71717a;font-family:system-ui;">
+      <div style="font-size:14px;">Starting MLB Betting Predictor…</div>
+      <div style="font-size:11px;margin-top:8px;">If this doesn't change in a few seconds, open DevTools → Console.</div>
+    </div>
+  </div>
+
+  <script type="text/babel" data-presets="env,react">
+    const { useState, useEffect, useMemo } = React;
+    const RC = window.Recharts || {};
+    const {
+      ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
+      BarChart, Bar, Cell
+    } = RC;
+    const HAS_CHARTS = !!RC.ResponsiveContainer;
+
+    // ---------- helpers ----------
+    const fmtPct = (p, digits = 1) =>
+      p == null ? "—" : `${(p * 100).toFixed(digits)}%`;
+    const fmtSignedPct = (p) =>
+      p == null ? "—" : `${p >= 0 ? "+" : ""}${(p * 100).toFixed(1)}%`;
+    const fmtOdds = (o) => {
+      if (o == null) return "—";
+      return o > 0 ? `+${o}` : `${o}`;
+    };
+    const fmtEV = (e) =>
+      e == null ? "—" : `${e >= 0 ? "+" : ""}${e.toFixed(3)}`;
+    const fmtTime = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    };
+
+    const confColor = (label) => ({
+      HIGH: "text-emerald-400",
+      MEDIUM: "text-sky-400",
+      LEAN: "text-amber-300",
+      LOW: "text-zinc-400",
+    }[label] || "text-zinc-400");
+
+    const confBarColor = (label) => ({
+      HIGH: "bg-emerald-500",
+      MEDIUM: "bg-sky-500",
+      LEAN: "bg-amber-400",
+      LOW: "bg-zinc-500",
+    }[label] || "bg-zinc-500");
+
+    const edgeColor = (e) =>
+      e == null ? "text-zinc-400"
+        : e > 0.02 ? "text-emerald-400"
+        : e > 0 ? "text-emerald-300"
+        : e > -0.02 ? "text-zinc-300"
+        : "text-rose-400";
+
+    // Backend emits several NO-BET variants:
+    //   "NO BET"                         — predictor didn't clear min_edge
+    //   "NO BET (gate)"                  — narrow_gate filtered it
+    //   "NO BET (market disabled)"       — market turned off
+    //   "NO BET (game in progress)"      — live game; pregame model n/a
+    // Treat them all the same for UI purposes.
+    const isNoBet = (pick) => typeof pick === "string" && pick.startsWith("NO BET");
+
+    // ---------- shared atoms ----------
+    function ConfidenceBar({ score, label }) {
+      const pct = Math.max(0, Math.min(100, score || 0));
+      return (
+        <div className="w-full">
+          <div className="flex items-center justify-between mb-1">
+            <span className={`text-[11px] font-semibold tracking-wider ${confColor(label)}`}>{label}</span>
+            <span className="text-[11px] mono text-zinc-400">{pct.toFixed(0)}/100</span>
+          </div>
+          <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+            <div className={`h-full ${confBarColor(label)}`} style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      );
+    }
+
+    function ResultBadge({ result }) {
+      if (!result) return null;
+      const styles = {
+        win:    "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
+        loss:   "bg-rose-500/15 text-rose-300 border-rose-500/40",
+        push:   "bg-zinc-500/15 text-zinc-300 border-zinc-500/40",
+        no_bet: "bg-zinc-700/30 text-zinc-500 border-zinc-700",
+      };
+      const label = { win: "WIN", loss: "LOSS", push: "PUSH", no_bet: "—" }[result] || result;
+      return <span className={`chip border ${styles[result] || styles.push}`}>{label}</span>;
+    }
+
+    function StatusBadge({ status, statusDetail, live }) {
+      if (status === "live") {
+        return (
+          <span className="chip bg-rose-500/15 text-rose-300 border border-rose-500/40">
+            <span className="live-dot inline-block w-1.5 h-1.5 bg-rose-400 rounded-full" />
+            LIVE {live ? `${live.half || ""} ${live.inning || ""}`.trim() : ""}
+          </span>
+        );
+      }
+      if (status === "final") {
+        return <span className="chip bg-zinc-700/30 text-zinc-400 border border-zinc-700">FINAL</span>;
+      }
+      return <span className="chip bg-sky-500/10 text-sky-300 border border-sky-500/30">SCHED</span>;
+    }
+
+    function PickCell({ p, status, rec }) {
+      if (!p) return <div className="text-zinc-500 text-xs">—</div>;
+      const noBet = isNoBet(p.pick);
+      const isFinal = status === "final";
+      const isLive = status === "live";
+
+      // Scheduled-game glow only — finals shouldn't shout green
+      const glowClass = isFinal || isLive || noBet ? "" :
+        p.confidence_label === "HIGH" ? "glow-green" :
+        p.confidence_label === "LEAN" ? "glow-amber" : "";
+
+      const showBook = rec && !noBet && !isFinal && !isLive && rec.best_book;
+      const theme = showBook ? bookTheme(rec.best_book) : null;
+
+      return (
+        <div className={`p-3 rounded-md border border-zinc-800 ${glowClass} ${isFinal ? "opacity-90" : ""}`}>
+          <div className="flex items-baseline justify-between">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500">{p.market.replace("_", " ")}</div>
+            {isFinal
+              ? <ResultBadge result={p.result} />
+              : <div className="text-[10px] mono text-zinc-400">EV {fmtEV(p.ev_per_unit)}</div>}
+          </div>
+          <div className={`mt-1 mono text-sm ${noBet ? "text-zinc-500" : "text-zinc-100"}`}>
+            {p.pick}
+          </div>
+          {!noBet && (
+            <div className="mt-1 flex items-center gap-3 text-[11px] mono">
+              <span className="text-zinc-400">p {fmtPct(p.model_prob, 1)}</span>
+              <span className="text-zinc-500">vs {fmtPct(p.implied_prob, 1)}</span>
+              <span className={edgeColor(p.edge)}>{fmtSignedPct(p.edge)}</span>
+            </div>
+          )}
+          <div className="mt-2">
+            <ConfidenceBar score={p.confidence} label={p.confidence_label} />
+          </div>
+          {showBook && (
+            <div className={`mt-2 flex items-center justify-between px-2 py-1 rounded ${theme.bg} border ${theme.border}`}>
+              <div className="text-[9px] uppercase tracking-wider text-zinc-400">Bet at</div>
+              <div className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${theme.pill}`}>
+                {bookShortName(rec.best_book)}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ---------- DAILY PICKS ----------
+    function DailyPicks({ onOpenGame }) {
+      const [data, setData] = useState(null);
+      const [err, setErr] = useState(null);
+      const [filter, setFilter] = useState("all");
+      const [sort, setSort] = useState("confidence");
+
+      useEffect(() => {
+        fetch("/api/games/today")
+          .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+          .then(setData)
+          .catch(setErr);
+      }, []);
+
+      // IMPORTANT: all hooks above any early returns (rules of hooks).
+      const games = data?.games || [];
+      const summary = useMemo(() => {
+        const s = {
+          total: games.length,
+          scheduled: 0, live: 0, final: 0,
+          HIGH: 0, MEDIUM: 0, LEAN: 0, LOW: 0,
+          wins: 0, losses: 0, pushes: 0,
+        };
+        for (const g of games) {
+          s[g.status] = (s[g.status] || 0) + 1;
+          for (const p of Object.values(g.predictions)) {
+            if (!isNoBet(p.pick) && g.status !== "final") {
+              s[p.confidence_label] = (s[p.confidence_label] || 0) + 1;
+            }
+            if (g.status === "final") {
+              if (p.result === "win") s.wins++;
+              else if (p.result === "loss") s.losses++;
+              else if (p.result === "push") s.pushes++;
+            }
+          }
+        }
+        return s;
+      }, [games]);
+
+      if (err) return <div className="p-8 text-rose-400">Failed to load: {String(err)}</div>;
+      if (!data) return <div className="p-8 text-zinc-500">Loading today's slate…</div>;
+
+      // Best confidence pick across the 3 markets for filter/sort purposes
+      const bestPick = (g) => Object.values(g.predictions)
+        .filter(p => !isNoBet(p.pick))
+        .reduce((a, b) => (b.confidence > (a?.confidence ?? -1) ? b : a), null);
+
+      let filtered = games;
+      if (filter === "HIGH" || filter === "MEDIUM" || filter === "LEAN" || filter === "LOW") {
+        filtered = games.filter(g => {
+          if (g.status === "final") return false;
+          const best = bestPick(g);
+          return best && best.confidence_label === filter;
+        });
+      } else if (filter === "upcoming") {
+        filtered = games.filter(g => g.status === "scheduled");
+      } else if (filter === "live") {
+        filtered = games.filter(g => g.status === "live");
+      } else if (filter === "final") {
+        filtered = games.filter(g => g.status === "final");
+      }
+
+      filtered = [...filtered].sort((a, b) => {
+        // Always: scheduled → live → final
+        const order = { scheduled: 0, live: 1, final: 2 };
+        const so = order[a.status] - order[b.status];
+        if (so !== 0) return so;
+        if (sort === "time") return (a.first_pitch_utc || "").localeCompare(b.first_pitch_utc || "");
+        if (sort === "edge") {
+          const ea = Math.max(...Object.values(a.predictions).map(p => p.edge ?? -1));
+          const eb = Math.max(...Object.values(b.predictions).map(p => p.edge ?? -1));
+          return eb - ea;
+        }
+        const ca = bestPick(a)?.confidence ?? 0;
+        const cb = bestPick(b)?.confidence ?? 0;
+        return cb - ca;
+      });
+
+      const recordText = summary.final > 0
+        ? `${summary.wins}-${summary.losses}${summary.pushes ? `-${summary.pushes}` : ""}`
+        : "—";
+      const recordColor = summary.wins > summary.losses ? "text-emerald-400"
+        : summary.wins < summary.losses ? "text-rose-400" : "text-zinc-400";
+
+      return (
+        <div className="px-6 pb-12">
+          {/* Top stats strip */}
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+            <div className="card rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">Slate</div>
+              <div className="text-2xl mono mt-1 text-zinc-100">{summary.total}</div>
+            </div>
+            <div className="card rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">Upcoming</div>
+              <div className="text-2xl mono mt-1 text-sky-300">{summary.scheduled}</div>
+            </div>
+            <div className="card rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">Live</div>
+              <div className="text-2xl mono mt-1 text-rose-300">{summary.live}</div>
+            </div>
+            <div className="card rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">Final</div>
+              <div className="text-2xl mono mt-1 text-zinc-400">{summary.final}</div>
+            </div>
+            <div className="card rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">Today's record</div>
+              <div className={`text-2xl mono mt-1 ${recordColor}`}>{recordText}</div>
+            </div>
+            <div className="card rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">HIGH / MED</div>
+              <div className="text-2xl mono mt-1">
+                <span className="text-emerald-400">{summary.HIGH}</span>
+                <span className="text-zinc-600 mx-1">/</span>
+                <span className="text-sky-400">{summary.MEDIUM}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <div className="flex items-center gap-1 flex-wrap">
+              {[
+                { id: "all", label: "All" },
+                { id: "upcoming", label: "Upcoming" },
+                { id: "live", label: "Live" },
+                { id: "final", label: "Final" },
+                { id: "HIGH", label: "HIGH" },
+                { id: "MEDIUM", label: "MED" },
+                { id: "LEAN", label: "LEAN" },
+              ].map(f => (
+                <button key={f.id} onClick={() => setFilter(f.id)}
+                  className={`px-3 py-1 text-xs rounded-md border ${
+                    filter === f.id ? "bg-zinc-100 text-zinc-900 border-zinc-100"
+                                    : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                  }`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Sort</span>
+              <select value={sort} onChange={e => setSort(e.target.value)}
+                className="bg-zinc-900 border border-zinc-700 text-xs rounded-md px-2 py-1">
+                <option value="confidence">Confidence</option>
+                <option value="edge">Best edge</option>
+                <option value="time">First pitch</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {filtered.map(g => <GameCard key={g.id} game={g} onOpen={() => onOpenGame(g.id)} />)}
+            {!filtered.length && (
+              <div className="text-zinc-500 text-sm col-span-full text-center py-12">
+                No games match this filter.
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function GameCard({ game, onOpen }) {
+      const ml = game.predictions.moneyline;
+      const rl = game.predictions.run_line;
+      const tot = game.predictions.totals;
+      const isFinal = game.status === "final";
+      const isLive = game.status === "live";
+      const hasScore = game.home.score != null && game.away.score != null;
+
+      // Tally wins/losses on final games
+      let record = null;
+      if (isFinal) {
+        const results = [ml, rl, tot].map(p => p.result).filter(Boolean);
+        const wins = results.filter(r => r === "win").length;
+        const losses = results.filter(r => r === "loss").length;
+        const pushes = results.filter(r => r === "push").length;
+        record = { wins, losses, pushes };
+      }
+
+      return (
+        <div className={`card rounded-xl p-4 transition cursor-pointer ${
+          isFinal ? "opacity-80 hover:opacity-100 hover:border-zinc-600" : "hover:border-zinc-600"
+        }`} onClick={onOpen}>
+          {/* Header */}
+          <div className="flex items-start justify-between mb-3 gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-[11px] text-zinc-500 flex-wrap">
+                <StatusBadge status={game.status} statusDetail={game.status_detail} live={game.live} />
+                <span className="mono">{fmtTime(game.first_pitch_utc)}</span>
+                {game.venue && <><span className="text-zinc-700">·</span><span className="truncate">{game.venue}</span></>}
+                <span className="text-zinc-700">·</span>
+                <span className="mono">park {game.park.run_factor.toFixed(2)}</span>
+                {record && (
+                  <>
+                    <span className="text-zinc-700">·</span>
+                    <span className={`mono ${record.wins > record.losses ? "text-emerald-400" : record.wins < record.losses ? "text-rose-400" : "text-zinc-400"}`}>
+                      {record.wins}-{record.losses}{record.pushes ? `-${record.pushes}` : ""}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-3">
+                <TeamHeader t={game.away} mlOdds={game.market.away_ml}
+                  showScore={hasScore} winner={hasScore && game.away.score > game.home.score} />
+                <span className="text-zinc-600 text-xs">@</span>
+                <TeamHeader t={game.home} mlOdds={game.market.home_ml} home
+                  showScore={hasScore} winner={hasScore && game.home.score > game.away.score} />
+              </div>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); onOpen(); }}
+              className="text-[11px] text-zinc-400 hover:text-zinc-100 border border-zinc-700 rounded-md px-2 py-1 shrink-0">
+              details →
+            </button>
+          </div>
+
+          {/* Three predictions */}
+          <div className="grid grid-cols-3 gap-2">
+            <PickCell p={ml}  status={game.status}
+              rec={(game.recommendations || []).find(r => r.market === "moneyline")} />
+            <PickCell p={rl}  status={game.status}
+              rec={(game.recommendations || []).find(r => r.market === "run_line")} />
+            <PickCell p={tot} status={game.status}
+              rec={(game.recommendations || []).find(r => r.market === "totals")} />
+          </div>
+        </div>
+      );
+    }
+
+    function TeamHeader({ t, mlOdds, home, showScore, winner }) {
+      return (
+        <div className="flex flex-col flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={`text-base font-semibold ${home ? "text-zinc-100" : "text-zinc-300"}`}>
+              {t.abbr}
+            </span>
+            <span className="text-zinc-500 text-xs truncate">{t.name}</span>
+            {showScore ? (
+              <span className={`mono text-base ml-auto ${winner ? "text-emerald-300" : "text-zinc-400"}`}>
+                {t.score}
+              </span>
+            ) : (
+              <span className="mono text-xs text-zinc-400">{fmtOdds(mlOdds)}</span>
+            )}
+          </div>
+          <div className="text-[11px] text-zinc-500 mono truncate">
+            {t.pitcher} ({t.pitcher_throws}) · SIERA {t.pitcher_siera.toFixed(2)} · L10 {(t.form_l10*100).toFixed(0)}%
+            {!t.lineup_confirmed && <span className="ml-1 text-amber-400">· TBD</span>}
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- GAME DETAIL ----------
+    function GameDetail({ gameId, onBack }) {
+      const [data, setData] = useState(null);
+      const [err, setErr] = useState(null);
+
+      useEffect(() => {
+        if (!gameId) return;
+        setData(null);
+        fetch(`/api/games/${encodeURIComponent(gameId)}`)
+          .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+          .then(setData).catch(setErr);
+      }, [gameId]);
+
+      if (!gameId) {
+        return <div className="p-8 text-zinc-500">Pick a game from the dashboard to see the breakdown.</div>;
+      }
+      if (err) return <div className="p-8 text-rose-400">Failed: {String(err)}</div>;
+      if (!data) return <div className="p-8 text-zinc-500">Loading game…</div>;
+
+      const hasScore = data.home.score != null && data.away.score != null;
+      const awayWon = hasScore && data.away.score > data.home.score;
+      const homeWon = hasScore && data.home.score > data.away.score;
+
+      return (
+        <div className="px-6 pb-12">
+          <button onClick={onBack} className="text-xs text-zinc-400 hover:text-zinc-100 mb-4">← Back to dashboard</button>
+
+          {/* Matchup header */}
+          <div className="card rounded-xl p-5 mb-4">
+            <div className="text-[11px] text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-2 flex-wrap">
+              <StatusBadge status={data.status} statusDetail={data.status_detail} live={data.live} />
+              <span className="mono">{fmtTime(data.first_pitch_utc)} · {data.date}</span>
+              {data.venue && <><span className="text-zinc-700">·</span><span>{data.venue}</span></>}
+              {data.status_detail && data.status !== "scheduled" &&
+                <><span className="text-zinc-700">·</span><span>{data.status_detail}</span></>}
+            </div>
+            <div className="flex items-center gap-4 text-2xl">
+              <div className="flex-1">
+                <div className="text-zinc-200 font-semibold flex items-center gap-3">
+                  <span>{data.away.abbr} <span className="text-zinc-500 text-base ml-1">{data.away.name}</span></span>
+                  {hasScore && <span className={`mono text-3xl ml-auto ${awayWon ? "text-emerald-300" : "text-zinc-400"}`}>{data.away.score}</span>}
+                </div>
+                <div className="text-zinc-500 text-sm mono mt-1">
+                  {data.away.pitcher} ({data.away.pitcher_throws}) · SIERA {data.away.pitcher_siera.toFixed(2)} ·{" "}
+                  <MLStartFinal
+                    current={data.market.away_ml}
+                    start={data.starting_market && data.starting_market.away_ml}
+                    status={data.status}
+                  />
+                </div>
+              </div>
+              <span className="text-zinc-700 text-lg">@</span>
+              <div className="flex-1 text-right">
+                <div className="text-zinc-100 font-semibold flex items-center gap-3 justify-end">
+                  {hasScore && <span className={`mono text-3xl mr-auto ${homeWon ? "text-emerald-300" : "text-zinc-400"}`}>{data.home.score}</span>}
+                  <span>{data.home.abbr} <span className="text-zinc-500 text-base ml-1">{data.home.name}</span></span>
+                </div>
+                <div className="text-zinc-500 text-sm mono mt-1">
+                  {data.home.pitcher} ({data.home.pitcher_throws}) · SIERA {data.home.pitcher_siera.toFixed(2)} ·{" "}
+                  <MLStartFinal
+                    current={data.market.home_ml}
+                    start={data.starting_market && data.starting_market.home_ml}
+                    status={data.status}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px] mono text-zinc-400">
+              <LineStat label="Total" market={data.market} start={data.starting_market}
+                status={data.status} kind="total" />
+              <LineStat label="Run line" market={data.market} start={data.starting_market}
+                status={data.status} kind="run_line"
+                home={data.home.abbr} away={data.away.abbr} />
+              <Stat label="Park" value={`R ${data.park.run_factor.toFixed(2)} · HR ${data.park.hr_factor.toFixed(2)}`} />
+              <Stat label="Weather" value={data.park.roof === "closed"
+                ? "Roof closed" : `${data.park.temp_f}°F · ${data.park.wind_mph} mph ${data.park.wind_dir}`} />
+            </div>
+          </div>
+
+          {/* Per-book lines with best-price highlighting */}
+          <BooksPanel data={data} />
+
+          {/* Predictions */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            {["moneyline", "run_line", "totals"].map(m => (
+              <PredictionPanel
+                key={m}
+                p={data.predictions[m]}
+                status={data.status}
+                rec={(data.recommendations || []).find(r => r.market === m)}
+              />
+            ))}
+          </div>
+
+          {/* Factor breakdown per market */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            {["moneyline", "run_line", "totals"].map(m => (
+              <FactorPanel key={m} title={m} detail={data.predictions[m].detail} />
+            ))}
+          </div>
+
+          {/* Raw teams */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <TeamPanel team={data.away_full} label="Away" />
+            <TeamPanel team={data.home_full} label="Home" />
+          </div>
+        </div>
+      );
+    }
+
+    function Stat({ label, value }) {
+      return (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
+          <div className="mono text-zinc-200 mt-0.5">{value}</div>
+        </div>
+      );
+    }
+
+    // Show "ML -120" for scheduled/live games and "ML open -115 → final -120"
+    // for finals (or whenever we have a known starting price that differs).
+    function MLStartFinal({ current, start, status }) {
+      const isFinal = status === "final";
+      const hasDifferentStart = start != null && start !== current;
+      if (isFinal && start != null) {
+        return (
+          <span>
+            ML <span className="text-zinc-400">open</span>{" "}
+            <span>{fmtOdds(start)}</span>{" "}
+            <span className="text-zinc-600">→</span>{" "}
+            <span className="text-zinc-300">final</span>{" "}
+            <span>{fmtOdds(current)}</span>
+          </span>
+        );
+      }
+      if (hasDifferentStart) {
+        return (
+          <span>
+            ML <span>{fmtOdds(current)}</span>{" "}
+            <span className="text-zinc-600">(open {fmtOdds(start)})</span>
+          </span>
+        );
+      }
+      return <span>ML {fmtOdds(current)}</span>;
+    }
+
+    // A Stat cell that knows about "start" → "final" values for the total
+    // or run-line. `kind` is "total" or "run_line".
+    function LineStat({ label, market, start, status, kind, home, away }) {
+      const isFinal = status === "final";
+      const fmtTotal = (m) =>
+        m == null || m.total_line == null
+          ? null
+          : `${m.total_line} (O ${fmtOdds(m.over_odds)})`;
+      const fmtRL = (m) => {
+        if (m == null) return null;
+        return m.home_is_rl_favorite
+          ? `${home} -1.5 ${fmtOdds(m.home_rl_odds)}`
+          : `${away} -1.5 ${fmtOdds(m.away_rl_odds)}`;
+      };
+      const render = kind === "total" ? fmtTotal : fmtRL;
+      const now = render(market);
+      const startStr = render(start);
+      const different = startStr && now && startStr !== now;
+      return (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
+          <div className="mono text-zinc-200 mt-0.5">
+            {isFinal && startStr ? (
+              <span>
+                <span className="text-zinc-500">open</span> {startStr}{" "}
+                <span className="text-zinc-600">→</span>{" "}
+                <span className="text-zinc-400">final</span> {now || "—"}
+              </span>
+            ) : different ? (
+              <span>
+                {now} <span className="text-zinc-500">(open {startStr})</span>
+              </span>
+            ) : (
+              now || "—"
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- BOOKS PANEL (DK vs FD side-by-side) ----------
+    // Renders a 3-row (ML / RL / Total) x 2-column (DK / FD) grid of prices,
+    // with the best price per row highlighted. Under the grid, a
+    // "Recommendations" strip shows which book to bet each market at.
+    function BooksPanel({ data }) {
+      const dk = data.books?.draftkings;
+      const fd = data.books?.fanduel;
+      const dkStart = data.books_starting?.draftkings;
+      const fdStart = data.books_starting?.fanduel;
+      const recs = data.recommendations || [];
+      const recByMarket = Object.fromEntries(recs.map(r => [r.market, r]));
+      const home = data.home.abbr, away = data.away.abbr;
+      const isFinal = data.status === "final";
+      // Only surface opening lines if we actually have something to
+      // compare against. Otherwise the extra row is just "—".
+      const hasAnyStart = !!(dkStart || fdStart);
+
+      if (!dk && !fd) {
+        return (
+          <div className="card rounded-xl p-4 mb-4 text-[12px] text-zinc-500">
+            No DraftKings or FanDuel lines available for this game yet.
+          </div>
+        );
+      }
+
+      // Helper to format american odds with sign
+      const f = (o) => o == null ? "—" : (o > 0 ? `+${o}` : `${o}`);
+      // Helper: render one market's row for one book.
+      const cellFor = (book, market) => {
+        if (!book) return <span className="text-zinc-600">—</span>;
+        if (market === "moneyline") {
+          return (
+            <div className="mono text-[12px]">
+              <div>{away} <span className="text-zinc-400">{f(book.away_ml)}</span></div>
+              <div>{home} <span className="text-zinc-400">{f(book.home_ml)}</span></div>
+            </div>
+          );
+        }
+        if (market === "run_line") {
+          const favTeam = book.home_is_rl_favorite ? home : away;
+          const dogTeam = book.home_is_rl_favorite ? away : home;
+          const favOdds = book.home_is_rl_favorite ? book.home_rl_odds : book.away_rl_odds;
+          const dogOdds = book.home_is_rl_favorite ? book.away_rl_odds : book.home_rl_odds;
+          return (
+            <div className="mono text-[12px]">
+              <div>{favTeam} -1.5 <span className="text-zinc-400">{f(favOdds)}</span></div>
+              <div>{dogTeam} +1.5 <span className="text-zinc-400">{f(dogOdds)}</span></div>
+            </div>
+          );
+        }
+        // totals
+        return (
+          <div className="mono text-[12px]">
+            <div>O {book.total_line ?? "—"} <span className="text-zinc-400">{f(book.over_odds)}</span></div>
+            <div>U {book.total_line ?? "—"} <span className="text-zinc-400">{f(book.under_odds)}</span></div>
+          </div>
+        );
+      };
+
+      // Like cellFor, but pairs the current/closing price with the
+      // opening price in a "open X → final Y" layout — rendered only
+      // when the game is final and we have an opener to show.
+      const startFinalCell = (startBook, finalBook, market) => {
+        if (!finalBook && !startBook)
+          return <span className="text-zinc-600">—</span>;
+        if (market === "moneyline") {
+          const row = (teamAbbr, startVal, finalVal) => (
+            <div className="flex items-baseline gap-1">
+              <span>{teamAbbr}</span>
+              <span className="text-zinc-500 text-[11px]">{f(startVal)}</span>
+              <span className="text-zinc-600 text-[10px]">→</span>
+              <span className="text-zinc-200">{f(finalVal)}</span>
+            </div>
+          );
+          return (
+            <div className="mono text-[12px] space-y-0.5">
+              {row(away, startBook?.away_ml, finalBook?.away_ml)}
+              {row(home, startBook?.home_ml, finalBook?.home_ml)}
+            </div>
+          );
+        }
+        if (market === "run_line") {
+          // Anchor the display to whoever is currently the favorite
+          // (run-line direction can shift as the number moves). Default
+          // to the closing book's orientation; fall back to the opener.
+          const ref = finalBook || startBook;
+          const favIsHome = !!ref.home_is_rl_favorite;
+          const favTeam = favIsHome ? home : away;
+          const dogTeam = favIsHome ? away : home;
+          const favStart = favIsHome ? startBook?.home_rl_odds : startBook?.away_rl_odds;
+          const dogStart = favIsHome ? startBook?.away_rl_odds : startBook?.home_rl_odds;
+          const favFinal = favIsHome ? finalBook?.home_rl_odds : finalBook?.away_rl_odds;
+          const dogFinal = favIsHome ? finalBook?.away_rl_odds : finalBook?.home_rl_odds;
+          const row = (label, startVal, finalVal) => (
+            <div className="flex items-baseline gap-1">
+              <span>{label}</span>
+              <span className="text-zinc-500 text-[11px]">{f(startVal)}</span>
+              <span className="text-zinc-600 text-[10px]">→</span>
+              <span className="text-zinc-200">{f(finalVal)}</span>
+            </div>
+          );
+          return (
+            <div className="mono text-[12px] space-y-0.5">
+              {row(`${favTeam} -1.5`, favStart, favFinal)}
+              {row(`${dogTeam} +1.5`, dogStart, dogFinal)}
+            </div>
+          );
+        }
+        // totals — number itself can move, so show "O 8.5 -110 → 9.0 -105"
+        const totalLine = (m) => m?.total_line ?? "—";
+        const row = (side, startOdds, finalOdds) => (
+          <div className="flex items-baseline gap-1 flex-wrap">
+            <span>{side}</span>
+            <span className="text-zinc-500 text-[11px]">
+              {totalLine(startBook)} {f(startOdds)}
+            </span>
+            <span className="text-zinc-600 text-[10px]">→</span>
+            <span className="text-zinc-200">
+              {totalLine(finalBook)} {f(finalOdds)}
+            </span>
+          </div>
+        );
+        return (
+          <div className="mono text-[12px] space-y-0.5">
+            {row("O", startBook?.over_odds, finalBook?.over_odds)}
+            {row("U", startBook?.under_odds, finalBook?.under_odds)}
+          </div>
+        );
+      };
+
+      const bestClass = (market, whichBook) => {
+        const rec = recByMarket[market];
+        if (!rec) return "";
+        return rec.best_book === whichBook
+          ? "ring-2 ring-emerald-500/70 bg-emerald-950/30"
+          : "opacity-70";
+      };
+      const isBest = (market, whichBook) => {
+        const rec = recByMarket[market];
+        return rec && rec.best_book === whichBook;
+      };
+
+      const markets = [
+        { key: "moneyline", label: "Moneyline" },
+        { key: "run_line",  label: "Run Line" },
+        { key: "totals",    label: "Total" },
+      ];
+
+      const showStartFinal = isFinal && hasAnyStart;
+
+      return (
+        <div className="card rounded-xl p-4 mb-4">
+          <div className="flex items-baseline justify-between mb-3">
+            <div className="text-[11px] uppercase tracking-wider text-zinc-400">
+              {showStartFinal ? "Lines by book — opening → final" : "Lines by book"}
+            </div>
+            <div className="text-[10px] text-zinc-500">
+              {showStartFinal
+                ? <>Dim = opening · bright = final</>
+                : <>Green highlight + <span className="text-emerald-400 font-semibold">BET HERE</span> = best price for the model's pick</>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-[90px_1fr_1fr] gap-2 text-[11px]">
+            <div />
+            <div className="text-zinc-400 uppercase tracking-wider pb-1 border-b border-zinc-800">
+              DraftKings {!dk && <span className="ml-1 text-amber-400 text-[10px]">· unavailable</span>}
+            </div>
+            <div className="text-zinc-400 uppercase tracking-wider pb-1 border-b border-zinc-800">
+              FanDuel {!fd && <span className="ml-1 text-amber-400 text-[10px]">· unavailable</span>}
+            </div>
+            {markets.map(m => (
+              <React.Fragment key={m.key}>
+                <div className="text-zinc-500 uppercase tracking-wider text-[10px] py-2">{m.label}</div>
+                <div className={`relative rounded px-2 py-2 border border-zinc-800 ${bestClass(m.key, "draftkings")}`}>
+                  {isBest(m.key, "draftkings") && (
+                    <div className="absolute -top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500 text-emerald-950 tracking-wider">
+                      BET HERE ✓
+                    </div>
+                  )}
+                  {showStartFinal
+                    ? startFinalCell(dkStart, dk, m.key)
+                    : cellFor(dk, m.key)}
+                </div>
+                <div className={`relative rounded px-2 py-2 border border-zinc-800 ${bestClass(m.key, "fanduel")}`}>
+                  {isBest(m.key, "fanduel") && (
+                    <div className="absolute -top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500 text-emerald-950 tracking-wider">
+                      BET HERE ✓
+                    </div>
+                  )}
+                  {showStartFinal
+                    ? startFinalCell(fdStart, fd, m.key)
+                    : cellFor(fd, m.key)}
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+
+          {recs.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-zinc-800">
+              <div className="text-[11px] uppercase tracking-wider text-zinc-400 mb-2">
+                Recommendations
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                {recs.map(r => (
+                  <RecChip key={r.market} rec={r} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function RecChip({ rec }) {
+      const theme = bookTheme(rec.best_book);
+      const odds = rec.best_odds == null ? "—"
+                 : (rec.best_odds > 0 ? `+${rec.best_odds}` : `${rec.best_odds}`);
+      const ev = rec.best_ev_per_unit;
+      const evStr = ev == null ? "" :
+                    (ev >= 0 ? `EV +${(ev*100).toFixed(1)}%` : `EV ${(ev*100).toFixed(1)}%`);
+      const evColor = ev == null ? "text-zinc-500"
+                    : ev > 0 ? "text-emerald-400" : "text-rose-400";
+      const marketLabel = rec.market.replace("_", " ").toUpperCase();
+      // Trim trailing "-110" / "+105" etc. from pick since we re-display odds
+      const pickTrimmed = rec.pick.split(" ").slice(0, -1).join(" ") || rec.pick;
+      return (
+        <div className={`rounded-lg border-2 px-3 py-2.5 ${theme.bg} ${theme.border}`}>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-400">{marketLabel}</div>
+            <div className={`text-[11px] font-bold px-2 py-0.5 rounded ${theme.pill}`}>
+              {bookDisplayName(rec.best_book)}
+            </div>
+          </div>
+          <div className="mono text-[13px] text-zinc-100 truncate">
+            {pickTrimmed} <span className={`font-semibold ${theme.text}`}>{odds}</span>
+          </div>
+          {evStr && <div className={`mono text-[11px] mt-0.5 ${evColor}`}>{evStr}</div>}
+        </div>
+      );
+    }
+
+    // Book display + theme colors. DK = green-ish (brand), FD = blue (brand).
+    function bookDisplayName(key) {
+      if (key === "draftkings") return "DraftKings";
+      if (key === "fanduel")    return "FanDuel";
+      if (key === "pinnacle")   return "Pinnacle";
+      return key || "";
+    }
+    function bookShortName(key) {
+      if (key === "draftkings") return "DK";
+      if (key === "fanduel")    return "FD";
+      if (key === "pinnacle")   return "PIN";
+      return key || "";
+    }
+    function bookTheme(key) {
+      // Returns Tailwind classes for { bg, border, text, pill }
+      if (key === "draftkings") return {
+        bg:     "bg-green-950/50",
+        border: "border-green-600/60",
+        text:   "text-green-300",
+        pill:   "bg-green-600 text-white",
+      };
+      if (key === "fanduel") return {
+        bg:     "bg-blue-950/50",
+        border: "border-blue-600/60",
+        text:   "text-blue-300",
+        pill:   "bg-blue-600 text-white",
+      };
+      return {
+        bg: "bg-zinc-900/50", border: "border-zinc-700",
+        text: "text-zinc-300", pill: "bg-zinc-700 text-zinc-100",
+      };
+    }
+
+    function PredictionPanel({ p, status, rec }) {
+      const noBet = isNoBet(p.pick);
+      const isFinal = status === "final";
+      const showBookCallout = rec && !noBet && !isFinal && status !== "live" && rec.best_book;
+      const theme = showBookCallout ? bookTheme(rec.best_book) : null;
+      const recOdds = rec?.best_odds;
+      const recOddsStr = recOdds == null ? ""
+        : (recOdds > 0 ? `+${recOdds}` : `${recOdds}`);
+      return (
+        <div className={`card rounded-lg p-4 ${
+          noBet || isFinal || status === "live" ? "" :
+          p.confidence_label === "HIGH" ? "glow-green" :
+          p.confidence_label === "LEAN" ? "glow-amber" : ""
+        }`}>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+              {p.market.replace("_", " ")}
+            </div>
+            {isFinal && <ResultBadge result={p.result} />}
+          </div>
+          <div className={`text-lg mono mb-2 ${noBet ? "text-zinc-500" : "text-zinc-100"}`}>{p.pick}</div>
+          {!noBet && (
+            <div className="grid grid-cols-2 gap-y-1 text-[12px] mono">
+              <div className="text-zinc-500">Model</div>
+              <div className="text-right text-zinc-200">{fmtPct(p.model_prob)}</div>
+              <div className="text-zinc-500">Implied</div>
+              <div className="text-right text-zinc-300">{fmtPct(p.implied_prob)}</div>
+              <div className="text-zinc-500">Edge</div>
+              <div className={`text-right ${edgeColor(p.edge)}`}>{fmtSignedPct(p.edge)}</div>
+              <div className="text-zinc-500">EV / $1</div>
+              <div className={`text-right ${p.ev_per_unit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtEV(p.ev_per_unit)}</div>
+            </div>
+          )}
+          <div className="mt-3">
+            <ConfidenceBar score={p.confidence} label={p.confidence_label} />
+          </div>
+          {showBookCallout && (
+            <div className={`mt-3 -mx-4 -mb-4 px-4 py-2.5 rounded-b-lg border-t-2 ${theme.bg} ${theme.border}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-400">Place bet at</div>
+                  <div className={`text-[11px] font-bold px-2 py-0.5 rounded ${theme.pill}`}>
+                    {bookDisplayName(rec.best_book)}
+                  </div>
+                </div>
+                <div className={`mono text-sm font-semibold ${theme.text}`}>{recOddsStr}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Extract "family-level contribution" entries from a predictor's detail dict.
+    // Each predictor exposes them differently:
+    //   moneyline: diff_by_family  (home - away z-scores, already signed)
+    //   run_line:  weighted_diff + home_family_scores vs away_family_scores → diff
+    //   totals:    family_deltas_runs (extra/fewer runs vs baseline, in run units)
+    function extractFactors(market, detail) {
+      if (!detail) return { scale: "z", entries: [] };
+      if (market === "totals" && detail.family_deltas_runs) {
+        return { scale: "runs", entries: Object.entries(detail.family_deltas_runs) };
+      }
+      if (detail.diff_by_family) {
+        return { scale: "z", entries: Object.entries(detail.diff_by_family) };
+      }
+      if (detail.home_family_scores && detail.away_family_scores) {
+        const h = detail.home_family_scores, a = detail.away_family_scores;
+        const keys = Array.from(new Set([...Object.keys(h), ...Object.keys(a)]));
+        return { scale: "z", entries: keys.map(k => [k, (h[k] ?? 0) - (a[k] ?? 0)]) };
+      }
+      return { scale: "z", entries: [] };
+    }
+
+    const SCALAR_SKIP = new Set([
+      "home_family_scores", "away_family_scores", "diff_by_family",
+      "family_deltas_runs",
+    ]);
+
+    function FactorPanel({ title, detail }) {
+      const { scale, entries } = extractFactors(title, detail);
+      const extras = Object.entries(detail || {})
+        .filter(([k, v]) => typeof v === "number" && !SCALAR_SKIP.has(k))
+        .slice(0, 8);
+
+      return (
+        <div className="card rounded-lg p-4">
+          <div className="flex items-baseline justify-between mb-2">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500">{title.replace("_", " ")} factors</div>
+            <div className="text-[10px] text-zinc-600">
+              {scale === "runs" ? "Δ runs vs baseline" : "Δ z-score (home − away)"}
+            </div>
+          </div>
+          {entries.length > 0 ? (
+            <div className="space-y-1.5">
+              {entries.map(([name, val]) => (
+                <FactorBar key={name} name={name} value={val} scale={scale} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-zinc-500">No family breakdown exposed.</div>
+          )}
+          {extras.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-zinc-800 grid grid-cols-2 gap-y-1 text-[11px] mono">
+              {extras.map(([k, v]) => (
+                <React.Fragment key={k}>
+                  <div className="text-zinc-500 truncate" title={k}>{k}</div>
+                  <div className="text-right text-zinc-300">{v.toFixed(3)}</div>
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function FactorBar({ name, value, scale }) {
+      const v = Number(value) || 0;
+      // z-scale: ±2 → 100%; runs-scale: ±1.5 runs → 100%
+      const denom = scale === "runs" ? 1.5 : 2.0;
+      const pct = Math.min(100, Math.abs(v) / denom * 100);
+      const positive = v >= 0;
+      const fmt = scale === "runs"
+        ? `${v >= 0 ? "+" : ""}${v.toFixed(2)} R`
+        : `${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
+      return (
+        <div>
+          <div className="flex justify-between text-[11px] mono">
+            <span className="text-zinc-400">{name}</span>
+            <span className={positive ? "text-emerald-400" : "text-rose-400"}>{fmt}</span>
+          </div>
+          <div className="relative h-1 bg-zinc-800 rounded mt-1 overflow-hidden">
+            <div className="absolute top-0 left-1/2 w-px h-full bg-zinc-700" />
+            <div
+              className={`absolute top-0 h-full ${positive ? "bg-emerald-500" : "bg-rose-500"}`}
+              style={positive ? { left: "50%", width: `${pct/2}%` } : { right: "50%", width: `${pct/2}%` }}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    function TeamPanel({ team, label }) {
+      return (
+        <div className="card rounded-lg p-4">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">{label} · {team.name}</div>
+          <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 text-[11px] mono">
+            <Field label="Pitcher" value={`${team.pitcher.name} (${team.pitcher.throws})`} />
+            <Field label="SIERA" value={team.pitcher.siera.toFixed(2)} />
+            <Field label="K-BB%" value={fmtPct(team.pitcher.k_bb_pct, 1)} />
+            <Field label="xwOBA-against" value={team.pitcher.xwoba_against.toFixed(3)} />
+            <Field label="IP/GS" value={team.pitcher.ip_per_gs.toFixed(1)} />
+            <Field label="30d ERA" value={team.pitcher.rolling_30d_era.toFixed(2)} />
+
+            <Field label="BP FIP" value={team.bullpen.fip.toFixed(2)} />
+            <Field label="BP K%" value={fmtPct(team.bullpen.hi_lev_k_pct, 1)} />
+            <Field label="Meltdown%" value={fmtPct(team.bullpen.meltdown_pct, 1)} />
+            <Field label="Closer p3d" value={team.bullpen.closer_pitches_last3d} />
+
+            <Field label="wRC+" value={team.offense.wrc_plus.toFixed(0)} />
+            <Field label="wOBA" value={team.offense.wOBA.toFixed(3)} />
+            <Field label="ISO" value={team.offense.iso.toFixed(3)} />
+            <Field label="Barrel%" value={fmtPct(team.offense.barrel_pct, 1)} />
+
+            <Field label="OAA" value={team.defense.oaa.toFixed(1)} />
+            <Field label="DRS" value={team.defense.drs.toFixed(1)} />
+            <Field label="L10 form" value={fmtPct(team.form_last10_win_pct, 1)} />
+            <Field label="Travel 72h" value={`${team.travel_miles_72h.toFixed(0)} mi`} />
+          </div>
+        </div>
+      );
+    }
+
+    function Field({ label, value }) {
+      return (
+        <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+          <span className="text-zinc-500">{label}</span>
+          <span className="text-zinc-200">{value}</span>
+        </div>
+      );
+    }
+
+    // ---------- BACKTEST ----------
+    function Backtest() {
+      const [data, setData] = useState(null);
+      const [err, setErr] = useState(null);
+      useEffect(() => {
+        fetch("/api/backtest/summary")
+          .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+          .then(setData).catch(setErr);
+      }, []);
+
+      if (err) return <div className="p-8 text-rose-400">Failed: {String(err)}</div>;
+      if (!data) return <div className="p-8 text-zinc-500">Loading backtest…</div>;
+
+      const t = data.totals;
+      const startEq = t.starting_bankroll;
+      const endEq = t.ending_bankroll;
+
+      return (
+        <div className="px-6 pb-12">
+          {data.note && (
+            <div className="mb-4 text-[11px] text-amber-300/80 flex items-center gap-2">
+              <span className="live-dot inline-block w-2 h-2 bg-amber-400 rounded-full" />
+              {data.note}
+            </div>
+          )}
+
+          {/* KPI strip */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+            <KPI label="Bets" value={t.bets} />
+            <KPI label="Win %" value={fmtPct(t.win_pct, 1)} good={t.win_pct >= 0.524} />
+            <KPI label="Units won" value={t.units_won.toFixed(2)} good={t.units_won > 0} />
+            <KPI label="ROI" value={`${t.roi_pct >= 0 ? "+" : ""}${t.roi_pct.toFixed(2)}%`} good={t.roi_pct > 0} />
+            <KPI label="Bankroll" value={`$${startEq.toFixed(0)} → $${endEq.toFixed(0)}`} good={endEq > startEq} />
+          </div>
+
+          {/* Equity curve */}
+          <div className="card rounded-xl p-4 mb-5">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">
+              Equity curve · {data.period.start} → {data.period.end}
+            </div>
+            <div style={{ height: 280 }}>
+              {HAS_CHARTS ? (
+                <ResponsiveContainer>
+                  <LineChart data={data.equity_curve} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" />
+                    <XAxis dataKey="date" stroke="#52525b" tick={{ fontSize: 10 }}
+                      tickFormatter={(d) => d.slice(5)} minTickGap={40} />
+                    <YAxis stroke="#52525b" tick={{ fontSize: 10 }} domain={["auto", "auto"]} />
+                    <Tooltip contentStyle={{ background: "#0b0f17", border: "1px solid #2a3344" }}
+                      labelStyle={{ color: "#a1a1aa" }} formatter={(v) => `$${v.toFixed(2)}`} />
+                    <Line type="monotone" dataKey="equity" stroke="#22c55e" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <MiniLineChart data={data.equity_curve} />
+              )}
+            </div>
+          </div>
+
+          {/* By market */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="card rounded-xl p-4">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-3">By market</div>
+              <table className="w-full text-[12px]">
+                <thead className="text-zinc-500 border-b border-zinc-800">
+                  <tr>
+                    <th className="text-left font-normal pb-2">Market</th>
+                    <th className="text-right font-normal pb-2">Bets</th>
+                    <th className="text-right font-normal pb-2">Win%</th>
+                    <th className="text-right font-normal pb-2">Units</th>
+                    <th className="text-right font-normal pb-2">ROI</th>
+                    <th className="text-right font-normal pb-2">Avg Edge</th>
+                  </tr>
+                </thead>
+                <tbody className="mono">
+                  {Object.entries(data.by_market).map(([m, v]) => (
+                    <tr key={m} className="border-b border-zinc-800/50">
+                      <td className="py-2 text-zinc-200">{m.replace("_", " ")}</td>
+                      <td className="py-2 text-right text-zinc-300">{v.bets}</td>
+                      <td className="py-2 text-right text-zinc-300">{fmtPct(v.win_pct, 1)}</td>
+                      <td className={`py-2 text-right ${v.units_won >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {v.units_won >= 0 ? "+" : ""}{v.units_won.toFixed(2)}
+                      </td>
+                      <td className={`py-2 text-right ${v.roi_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {v.roi_pct >= 0 ? "+" : ""}{v.roi_pct.toFixed(2)}%
+                      </td>
+                      <td className="py-2 text-right text-zinc-300">{v.avg_edge_pct.toFixed(2)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="card rounded-xl p-4">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-3">By confidence band</div>
+              <div style={{ height: 220 }}>
+                {HAS_CHARTS ? (
+                  <ResponsiveContainer>
+                    <BarChart data={Object.entries(data.by_confidence).map(([label, v]) => ({
+                      label, ROI: v.roi_pct, win: v.win_pct * 100, bets: v.bets,
+                    }))}>
+                      <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" />
+                      <XAxis dataKey="label" stroke="#52525b" tick={{ fontSize: 11 }} />
+                      <YAxis stroke="#52525b" tick={{ fontSize: 10 }} />
+                      <Tooltip contentStyle={{ background: "#0b0f17", border: "1px solid #2a3344" }}
+                        labelStyle={{ color: "#a1a1aa" }} />
+                      <Bar dataKey="ROI" radius={[4, 4, 0, 0]}>
+                        {Object.entries(data.by_confidence).map(([label, v], i) => (
+                          <Cell key={label} fill={
+                            label === "HIGH" ? "#10b981" :
+                            label === "MEDIUM" ? "#0ea5e9" :
+                            label === "LEAN" ? "#f59e0b" : "#71717a"
+                          } />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <MiniBarChart data={Object.entries(data.by_confidence).map(([label, v]) => ({
+                    label, value: v.roi_pct,
+                    color: label === "HIGH" ? "#10b981" :
+                           label === "MEDIUM" ? "#0ea5e9" :
+                           label === "LEAN" ? "#f59e0b" : "#71717a",
+                  }))} />
+                )}
+              </div>
+              <div className="grid grid-cols-4 gap-2 mt-2 text-[11px] mono">
+                {Object.entries(data.by_confidence).map(([label, v]) => (
+                  <div key={label} className="text-center">
+                    <div className={confColor(label) + " font-semibold tracking-wider"}>{label}</div>
+                    <div className="text-zinc-400">{v.bets} bets</div>
+                    <div className="text-zinc-300">{fmtPct(v.win_pct, 1)} win</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- fallback SVG charts (used if Recharts CDN fails) ----------
+    function MiniLineChart({ data }) {
+      if (!data || !data.length) return null;
+      const w = 800, h = 260, pad = 30;
+      const ys = data.map(d => d.equity);
+      const yMin = Math.min(...ys), yMax = Math.max(...ys);
+      const xScale = (i) => pad + (i / (data.length - 1)) * (w - pad * 2);
+      const yScale = (y) => h - pad - ((y - yMin) / (yMax - yMin || 1)) * (h - pad * 2);
+      const path = data.map((d, i) => `${i ? "L" : "M"}${xScale(i).toFixed(1)},${yScale(d.equity).toFixed(1)}`).join(" ");
+      return (
+        <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+          <path d={path} stroke="#22c55e" strokeWidth="2" fill="none" />
+          <text x={pad} y={15} fill="#52525b" fontSize="10">${yMax.toFixed(0)}</text>
+          <text x={pad} y={h - 5} fill="#52525b" fontSize="10">${yMin.toFixed(0)}</text>
+        </svg>
+      );
+    }
+
+    function MiniBarChart({ data }) {
+      if (!data || !data.length) return null;
+      const w = 400, h = 200, pad = 20;
+      const vs = data.map(d => d.value);
+      const vMax = Math.max(...vs, 0), vMin = Math.min(...vs, 0);
+      const bw = (w - pad * 2) / data.length - 10;
+      const yZero = h - pad - ((0 - vMin) / (vMax - vMin || 1)) * (h - pad * 2);
+      return (
+        <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+          <line x1={pad} x2={w - pad} y1={yZero} y2={yZero} stroke="#374151" />
+          {data.map((d, i) => {
+            const x = pad + i * ((w - pad * 2) / data.length) + 5;
+            const y = h - pad - ((d.value - vMin) / (vMax - vMin || 1)) * (h - pad * 2);
+            const barTop = Math.min(y, yZero), barH = Math.abs(y - yZero);
+            return (
+              <g key={d.label}>
+                <rect x={x} y={barTop} width={bw} height={barH} fill={d.color} rx="3" />
+                <text x={x + bw / 2} y={h - 5} fill="#a1a1aa" fontSize="10" textAnchor="middle">{d.label}</text>
+                <text x={x + bw / 2} y={barTop - 4} fill="#e5e7eb" fontSize="10" textAnchor="middle">
+                  {d.value.toFixed(1)}%
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      );
+    }
+
+    function KPI({ label, value, good }) {
+      return (
+        <div className="card rounded-lg p-3">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
+          <div className={`text-xl mono mt-1 ${good == null ? "text-zinc-100" : good ? "text-emerald-400" : "text-rose-400"}`}>
+            {value}
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- APP SHELL ----------
+    function App() {
+      const [tab, setTab] = useState("dashboard");
+      const [openGameId, setOpenGameId] = useState(null);
+      const today = new Date().toLocaleDateString(undefined, {
+        weekday: "long", month: "long", day: "numeric"
+      });
+
+      const openGame = (id) => { setOpenGameId(id); setTab("detail"); };
+
+      return (
+        <div className="min-h-screen">
+          {/* Top bar */}
+          <header className="border-b border-zinc-900 bg-[#0b0f17]/95 backdrop-blur sticky top-0 z-10">
+            <div className="px-6 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-7 h-7 rounded bg-gradient-to-br from-emerald-500 to-sky-600 flex items-center justify-center text-xs font-bold text-zinc-900">⚾</div>
+                <div>
+                  <div className="text-sm font-semibold text-zinc-100 tracking-tight">MLB Betting Predictor</div>
+                  <div className="text-[10px] text-zinc-500">{today}</div>
+                </div>
+              </div>
+              <nav className="flex items-center gap-1">
+                {[
+                  { id: "dashboard", label: "Daily Picks" },
+                  { id: "detail", label: "Game Detail" },
+                  { id: "backtest", label: "Backtest" },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setTab(t.id)}
+                    className={`px-3 py-1.5 text-xs rounded-md ${
+                      tab === t.id ? "bg-zinc-800 text-zinc-100"
+                                   : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
+                    }`}>
+                    {t.label}
+                  </button>
+                ))}
+              </nav>
+              <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                <span className="live-dot inline-block w-2 h-2 bg-emerald-400 rounded-full" />
+                live
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto pt-6 scrollbar">
+            {tab === "dashboard" && <DailyPicks onOpenGame={openGame} />}
+            {tab === "detail" && <GameDetail gameId={openGameId} onBack={() => setTab("dashboard")} />}
+            {tab === "backtest" && <Backtest />}
+          </main>
+
+          <footer className="text-center text-[11px] text-zinc-600 pb-6">
+            Predictions are model output, not financial advice. Bankroll discipline matters more than any single edge.
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
