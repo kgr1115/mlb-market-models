@@ -51,6 +51,7 @@ def to_api_shape(res: BacktestResults, starting_bankroll: float = 1000.0
                 "win_pct": round(p.win_pct, 3),
                 "units_won": round(p.units_won, 2),
                 "roi_pct": round(p.roi_pct, 2),
+                "avg_edge_pct": round(p.avg_edge_pct, 2),
             }
             for m, p in res.by_market.items()
         },
@@ -60,6 +61,7 @@ def to_api_shape(res: BacktestResults, starting_bankroll: float = 1000.0
                 "win_pct": round(p.win_pct, 3),
                 "units_won": round(p.units_won, 2),
                 "roi_pct": round(p.roi_pct, 2),
+                "avg_edge_pct": round(p.avg_edge_pct, 2),
             }
             for label, p in res.by_confidence.items()
         },

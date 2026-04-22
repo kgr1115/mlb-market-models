@@ -162,6 +162,13 @@
       const showBook = rec && !noBet && !isFinal && !isLive && rec.best_book;
       const theme = showBook ? bookTheme(rec.best_book) : null;
 
+      // Prefer the rec's book-aware pick label when we have one — the
+      // raw p.pick is computed from the consensus MarketData, so the
+      // ±1.5 (or total number) can disagree with the book we're
+      // actually routing the bet to. The rec.pick has already been
+      // re-labeled against best_book's MarketData on the backend.
+      const displayPick = (rec && !noBet && rec.pick) ? rec.pick : p.pick;
+
       return (
         <div className={`p-3 rounded-md border border-zinc-800 ${glowClass} ${isFinal ? "opacity-90" : ""}`}>
           <div className="flex items-baseline justify-between">
@@ -171,7 +178,7 @@
               : <div className="text-[10px] mono text-zinc-400">EV {fmtEV(p.ev_per_unit)}</div>}
           </div>
           <div className={`mt-1 mono text-sm ${noBet ? "text-zinc-500" : "text-zinc-100"}`}>
-            {p.pick}
+            {displayPick}
           </div>
           {!noBet && (
             <div className="mt-1 flex items-center gap-3 text-[11px] mono">
@@ -640,10 +647,10 @@
     // with the best price per row highlighted. Under the grid, a
     // "Recommendations" strip shows which book to bet each market at.
     function BooksPanel({ data }) {
-      const dk = data.books?.draftkings;
-      const fd = data.books?.fanduel;
-      const dkStart = data.books_starting?.draftkings;
-      const fdStart = data.books_starting?.fanduel;
+      const dk  = data.books?.draftkings;
+      const fd  = data.books?.fanduel;
+      const dkStart  = data.books_starting?.draftkings;
+      const fdStart  = data.books_starting?.fanduel;
       const recs = data.recommendations || [];
       const recByMarket = Object.fromEntries(recs.map(r => [r.market, r]));
       const home = data.home.abbr, away = data.away.abbr;
@@ -659,6 +666,20 @@
           </div>
         );
       }
+
+      // Detect obviously stale / junk odds so the UI can flag them
+      // instead of silently displaying nonsense like -100000.
+      const isOutlierOdds = (o) => o != null && (o >= 50000 || o <= -50000);
+      const isOutlierTotal = (t) => t != null && (t < 3 || t > 20);
+      const bookIsStale = (b) => {
+        if (!b) return false;
+        return (
+          isOutlierOdds(b.home_ml) || isOutlierOdds(b.away_ml) ||
+          isOutlierOdds(b.home_rl_odds) || isOutlierOdds(b.away_rl_odds) ||
+          isOutlierOdds(b.over_odds) || isOutlierOdds(b.under_odds) ||
+          isOutlierTotal(b.total_line)
+        );
+      };
 
       // Helper to format american odds with sign
       const f = (o) => o == null ? "—" : (o > 0 ? `+${o}` : `${o}`);
@@ -801,36 +822,36 @@
           <div className="grid grid-cols-[90px_1fr_1fr] gap-2 text-[11px]">
             <div />
             <div className="text-zinc-400 uppercase tracking-wider pb-1 border-b border-zinc-800">
-              DraftKings {!dk && <span className="ml-1 text-amber-400 text-[10px]">· unavailable</span>}
+              DraftKings
+              {!dk && <span className="ml-1 text-amber-400 text-[10px]">· unavailable</span>}
+              {bookIsStale(dk) && <span className="ml-1 text-rose-400 text-[10px]">· stale</span>}
             </div>
             <div className="text-zinc-400 uppercase tracking-wider pb-1 border-b border-zinc-800">
-              FanDuel {!fd && <span className="ml-1 text-amber-400 text-[10px]">· unavailable</span>}
+              FanDuel
+              {!fd && <span className="ml-1 text-amber-400 text-[10px]">· unavailable</span>}
+              {bookIsStale(fd) && <span className="ml-1 text-rose-400 text-[10px]">· stale</span>}
             </div>
-            {markets.map(m => (
-              <React.Fragment key={m.key}>
-                <div className="text-zinc-500 uppercase tracking-wider text-[10px] py-2">{m.label}</div>
-                <div className={`relative rounded px-2 py-2 border border-zinc-800 ${bestClass(m.key, "draftkings")}`}>
-                  {isBest(m.key, "draftkings") && (
+            {markets.map(m => {
+              const bookCell = (key, book, start) => (
+                <div className={`relative rounded px-2 py-2 border border-zinc-800 ${bestClass(m.key, key)} ${bookIsStale(book) ? "ring-1 ring-rose-500/50 bg-rose-950/20" : ""}`}>
+                  {isBest(m.key, key) && (
                     <div className="absolute -top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500 text-emerald-950 tracking-wider">
                       BET HERE ✓
                     </div>
                   )}
                   {showStartFinal
-                    ? startFinalCell(dkStart, dk, m.key)
-                    : cellFor(dk, m.key)}
+                    ? startFinalCell(start, book, m.key)
+                    : cellFor(book, m.key)}
                 </div>
-                <div className={`relative rounded px-2 py-2 border border-zinc-800 ${bestClass(m.key, "fanduel")}`}>
-                  {isBest(m.key, "fanduel") && (
-                    <div className="absolute -top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500 text-emerald-950 tracking-wider">
-                      BET HERE ✓
-                    </div>
-                  )}
-                  {showStartFinal
-                    ? startFinalCell(fdStart, fd, m.key)
-                    : cellFor(fd, m.key)}
-                </div>
-              </React.Fragment>
-            ))}
+              );
+              return (
+                <React.Fragment key={m.key}>
+                  <div className="text-zinc-500 uppercase tracking-wider text-[10px] py-2">{m.label}</div>
+                  {bookCell("draftkings", dk, dkStart)}
+                  {bookCell("fanduel", fd, fdStart)}
+                </React.Fragment>
+              );
+            })}
           </div>
 
           {recs.length > 0 && (
@@ -859,8 +880,16 @@
       const evColor = ev == null ? "text-zinc-500"
                     : ev > 0 ? "text-emerald-400" : "text-rose-400";
       const marketLabel = rec.market.replace("_", " ").toUpperCase();
-      // Trim trailing "-110" / "+105" etc. from pick since we re-display odds
-      const pickTrimmed = rec.pick.split(" ").slice(0, -1).join(" ") || rec.pick;
+      // Strip a trailing american-odds token (e.g. "-110", "+105") from the
+      // pick label since we re-display the odds in the same chip. We only
+      // strip if the last token LOOKS like odds (±ddd) — the backend now
+      // often emits picks without the trailing odds, and blindly popping
+      // the last chunk would clobber "-1.5" from "AWAY -1.5".
+      const pickTokens = rec.pick.split(" ");
+      const last = pickTokens[pickTokens.length - 1] || "";
+      const looksLikeOdds = /^[+-]\d{2,4}$/.test(last);
+      const pickTrimmed = (looksLikeOdds ? pickTokens.slice(0, -1) : pickTokens)
+                            .join(" ") || rec.pick;
       return (
         <div className={`rounded-lg border-2 px-3 py-2.5 ${theme.bg} ${theme.border}`}>
           <div className="flex items-center justify-between gap-2 mb-1">
@@ -1178,7 +1207,7 @@
                       <td className={`py-2 text-right ${v.roi_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         {v.roi_pct >= 0 ? "+" : ""}{v.roi_pct.toFixed(2)}%
                       </td>
-                      <td className="py-2 text-right text-zinc-300">{v.avg_edge_pct.toFixed(2)}%</td>
+                      <td className="py-2 text-right text-zinc-300">{typeof v.avg_edge_pct === "number" ? `${v.avg_edge_pct.toFixed(2)}%` : "—"}</td>
                     </tr>
                   ))}
                 </tbody>

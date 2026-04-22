@@ -1,0 +1,103 @@
+{
+  "period": {
+    "start": "2026-04-20",
+    "end": "2026-04-20",
+    "days": 0
+  },
+  "totals": {
+    "bets": 18,
+    "wins": 8,
+    "losses": 10,
+    "pushes": 0,
+    "win_pct": 0.444,
+    "units_won": -2.76,
+    "roi_pct": -15.34,
+    "starting_bankroll": 1000.0,
+    "ending_bankroll": 997.24
+  },
+  "by_market": {
+    "moneyline": {
+      "bets": 6,
+      "wins": 3,
+      "losses": 3,
+      "pushes": 0,
+      "win_pct": 0.5,
+      "units_won": 0.37,
+      "roi_pct": 6.14,
+      "avg_edge_pct": 23.61
+    },
+    "run_line": {
+      "bets": 5,
+      "wins": 3,
+      "losses": 2,
+      "pushes": 0,
+      "win_pct": 0.6,
+      "units_won": 0.27,
+      "roi_pct": 5.31,
+      "avg_edge_pct": 15.47
+    },
+    "totals": {
+      "bets": 7,
+      "wins": 2,
+      "losses": 5,
+      "pushes": 0,
+      "win_pct": 0.286,
+      "units_won": -3.39,
+      "roi_pct": -48.5,
+      "avg_edge_pct": 22.32
+    }
+  },
+  "by_confidence": {
+    "LOW": {
+      "bets": 0,
+      "wins": 0,
+      "losses": 0,
+      "win_pct": 0.0,
+      "units_won": 0.0,
+      "roi_pct": 0.0,
+      "avg_edge_pct": 0.0
+    },
+    "LEAN": {
+      "bets": 0,
+      "wins": 0,
+      "losses": 0,
+      "win_pct": 0.0,
+      "units_won": 0.0,
+      "roi_pct": 0.0,
+      "avg_edge_pct": 0.0
+    },
+    "MEDIUM": {
+      "bets": 6,
+      "wins": 2,
+      "losses": 4,
+      "win_pct": 0.333,
+      "units_won": -2.57,
+      "roi_pct": -42.8,
+      "avg_edge_pct": 16.62
+    },
+    "HIGH": {
+      "bets": 12,
+      "wins": 6,
+      "losses": 6,
+      "win_pct": 0.5,
+      "units_won": -0.19,
+      "roi_pct": -1.61,
+      "avg_edge_pct": 22.96
+    }
+  },
+  "equity_curve": [
+    {
+      "date": "2026-04-20",
+      "equity": 997.24
+    }
+  ],
+  "meta": {
+    "season": 2026,
+    "games_evaluated": 8,
+    "games_missing_odds": 300,
+    "model": "prior-year-baseline",
+    "baseline_season": 2025,
+    "source": "real"
+  },
+  "note": null
+}

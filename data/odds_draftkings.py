@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib import error, request
 
-from .odds_models import OddsBook, OddsSnapshot, make_event_id
+from .odds_models import OddsBook, OddsSnapshot, make_event_id, pick_main_run_line
 from .team_names import try_normalize_team
 
 log = logging.getLogger(__name__)
@@ -668,7 +668,14 @@ def _parse_sportscontent_snapshots(payload: dict) -> list[OddsSnapshot]:
                     away_ml = am
 
         # --- Run Line (standard ±1.5) ---
-        home_rl_line = home_rl_odds = away_rl_odds = None
+        # DK's "Run Line" market can contain BOTH the main line (fav -1.5 /
+        # dog +1.5) AND the reverse (fav +1.5 / dog -1.5) as separate
+        # selections. Previously we overwrote home_rl_line with whichever
+        # home-side selection came last, which flipped the sign on games
+        # where DK listed the reverse pair after the main. Collect every
+        # ±1.5 candidate per side, then pick the main via ML direction.
+        home_rl_cands: list[tuple[float, int]] = []
+        away_rl_cands: list[tuple[float, int]] = []
         rl_market = ev_markets.get("Run Line")
         if rl_market:
             mid = str(rl_market.get("id") or "")
@@ -684,10 +691,12 @@ def _parse_sportscontent_snapshots(payload: dict) -> list[OddsSnapshot]:
                 if am is None:
                     continue
                 if side == "home":
-                    home_rl_line = pts_f   # negative when home is favorite
-                    home_rl_odds = am
+                    home_rl_cands.append((pts_f, am))
                 elif side == "away":
-                    away_rl_odds = am
+                    away_rl_cands.append((pts_f, am))
+        home_rl_line, home_rl_odds, away_rl_odds = pick_main_run_line(
+            home_rl_cands, away_rl_cands, home_ml, away_ml,
+        )
 
         # --- Total ---
         total_line = over_odds = under_odds = None

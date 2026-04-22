@@ -33,6 +33,7 @@ from .shared import (
     LEAGUE, HOME_FIELD_WIN_PROB_LIFT,
     TeamStats, GameContext, MarketData, PredictionResult,
     american_to_prob, american_to_decimal, remove_vig_two_way,
+    fair_prob_for_side,
     logistic, clamp, z, ev_per_unit,
     confidence_score, family_agreement, market_sharpness,
 )
@@ -40,6 +41,9 @@ from . import moneyline as ml
 
 
 RUN_LINE_WEIGHTS = {
+    # 2026-04-21 task #45: learned weights improved TEST log-loss but
+    # REGRESSED pooled ROI by 0.18pp. Reverted — log-loss and ROI
+    # disagree on RL because gate logic cares about tail confidence.
     "pitcher":     0.30,
     "bullpen":     0.20,
     "offense":     0.25,
@@ -88,7 +92,13 @@ def context_score(team: TeamStats, opponent: TeamStats, ctx: GameContext) -> flo
 def market_score_rl(team_is_home: bool, market: MarketData) -> float:
     """Small z-like bump from RL-specific line move or public splits.
     Positive score favors the chosen team covering.
+
+    Prefers pre-computed rlm_score_home (from odds_client consensus);
+    falls back to single-book ML line-movement heuristics.
     """
+    rlm = getattr(market, "rlm_score_home", 0.0) or 0.0
+    if rlm != 0.0:
+        return rlm if team_is_home else -rlm
     if market.opener_home_ml_odds is None:
         return 0.0
     # moved_toward_home: home odds got more negative (shorter) closing vs opener.
@@ -174,13 +184,20 @@ def predict_run_line(
         p_away_rl_cover = p_home_margin_le_minus2
         p_home_rl_cover = 1 - p_home_margin_le_minus2
 
-    # Market
-    implied_home, implied_away = remove_vig_two_way(market.home_rl_odds, market.away_rl_odds)
+    # Market — prefer no-vig fair-line consensus (set by odds_client /
+    # backtest engine). Falls back to per-book de-vig if consensus not populated.
+    implied_home = fair_prob_for_side(market, "home_rl")
+    implied_away = fair_prob_for_side(market, "away_rl")
     edge_home = p_home_rl_cover - implied_home
     edge_away = p_away_rl_cover - implied_away
 
-    # Market signal lives in the "market" family (10% weight) — no
-    # additional market_sharpness bump here to avoid double-counting.
+    # market_sharpness direct-to-edge bump. Stacks with the RL market
+    # family path (market_score_rl at 0.10 weight). 2026-04-21 test
+    # (disabling this bump with family kept on) moved RL ROI -3.06% →
+    # -3.22% and pooled -2.08% → -2.14%. Both paths are additive — keep
+    # both enabled.
+    edge_home += market_sharpness(market, "home")
+    edge_away += market_sharpness(market, "away")
 
     # Pick side
     if edge_home >= edge_away and edge_home >= min_edge:

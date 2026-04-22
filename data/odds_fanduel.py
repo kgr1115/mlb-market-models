@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib import error, request
 
-from .odds_models import OddsBook, OddsSnapshot, make_event_id
+from .odds_models import OddsBook, OddsSnapshot, make_event_id, pick_main_run_line
 from .team_names import try_normalize_team
 
 log = logging.getLogger(__name__)
@@ -143,6 +143,79 @@ _RL_TYPES = ("MATCH_HANDICAP_(2-WAY)", "SPREAD_BETTING", "HANDICAP", "MATCH_HAND
 _TOTAL_TYPES = ("TOTAL_POINTS_(OVER/UNDER)", "TOTAL_POINTS", "MATCH_TOTAL", "TOTAL",
                 "TOTAL_RUNS_(OVER/UNDER)")
 
+# FanDuel serves many MLB markets under the same marketType strings above —
+# "1st 5 Innings Money Line", "Race to 3 Runs", "Innings 1-3 Total", team
+# totals, derivative/period markets, etc. These are NOT the main full-game
+# lines but they carry marketType=MONEY_LINE / MATCH_HANDICAP / TOTAL_POINTS.
+# If we don't filter them out, the parse loop overwrites the main line with
+# whatever derivative market happens to be processed last — yielding nonsense
+# like a HOU ML of -100000 or an LAD/SF total of 9.5 when the real main is
+# 7.5. Any market whose name contains one of these substrings is excluded.
+_NON_MAIN_MARKET_SUBSTRINGS = (
+    "alt",            # alternate lines (both total and RL)
+    "1st",            # 1st 5 Innings, 1st Inning, etc.
+    "first",          # First 5 Innings, First Inning, First Team to Score
+    "inning",         # Innings 1-3, Innings 1-5, Inning-specific markets
+    "race to",        # Race to 3 Runs, Race to 5 Runs
+    "team total",     # Team Total Runs markets
+    "team to",        # First Team to Score, Last Team to Score
+    "both teams",     # Both Teams to Score
+    "no runs",        # No Runs in the 1st
+    "odd/even",       # Odd/Even Total Runs
+    "exactly",        # Exact Runs
+    "highest",        # Highest Scoring Inning/Half
+    "to win series",  # Series winner futures
+    "series",         # Series-level markets
+    "margin",         # Winning Margin
+    "shutout",        # Team to Record a Shutout
+    "f5",             # explicit F5 labeling
+)
+
+
+def _is_non_main_market(mname: str) -> bool:
+    m = (mname or "").lower()
+    return any(sub in m for sub in _NON_MAIN_MARKET_SUBSTRINGS)
+
+
+# FanDuel events can be in-play, just-settled, or scheduled. Our app wants
+# pre-game main-line prices only — the live/settled ones produce garbage like
+# a team shown at -100000 ML in the top of the 9th or an Over 8.5 at +270
+# because the real total has already been crushed. The FD payload exposes
+# state via a few different fields depending on the response shape; this
+# helper returns True if ANY of them say the event isn't a clean pre-game.
+def _event_is_prematch(ev: dict) -> bool:
+    # Explicit boolean — FD serves this on most event objects.
+    if ev.get("inPlay") is True:
+        return False
+    # String state fields. We whitelist only pre-match values; anything else
+    # (STARTED, LIVE, FINISHED, SETTLED, CLOSED, SUSPENDED) is rejected.
+    for key in ("eventState", "state", "status", "eventStatus"):
+        v = ev.get(key)
+        if v is None:
+            continue
+        s = str(v).strip().upper()
+        if s in {"PREMATCH", "PRE_MATCH", "PRE-MATCH", "SCHEDULED",
+                 "NOT_STARTED", "UPCOMING", "OPEN", ""}:
+            continue
+        # Anything else (LIVE, STARTED, FINISHED, SETTLED, SUSPENDED) rejects.
+        return False
+    # openDate in the future is also a good signal, but not all events carry
+    # a trustworthy one here — don't gate on it, just fall through.
+    return True
+
+
+# Market-level status check. Even for a pre-match event, individual markets
+# can be CLOSED / SUSPENDED, in which case their odds are stale/garbage.
+def _market_is_active(m: dict) -> bool:
+    for key in ("marketStatus", "status", "state"):
+        v = m.get(key)
+        if v is None:
+            continue
+        s = str(v).strip().upper()
+        if s not in {"ACTIVE", "OPEN", "TRADING", "AVAILABLE", ""}:
+            return False
+    return True
+
 
 def _strip_pitcher_annotation(team_raw: str) -> str:
     i = team_raw.find(" (")
@@ -175,13 +248,32 @@ def fetch_fanduel_snapshots() -> list[OddsSnapshot]:
     if not events or not markets:
         return []
 
+    # Pre-filter events: drop anything that isn't a clean pre-match. Live
+    # and just-settled events produce garbage main-line prices (e.g. HOU
+    # ML at -100000 in the top of the 9th). We filter at the event level
+    # so every market tied to that event is excluded too.
+    prematch_event_ids: set[str] = set()
+    skipped_live = 0
+    for ev_id, ev in events.items():
+        if _event_is_prematch(ev):
+            prematch_event_ids.add(str(ev.get("eventId") or ev_id))
+        else:
+            skipped_live += 1
+    if skipped_live:
+        log.info("FanDuel: skipped %d in-play/settled events", skipped_live)
+
     mk_by_event: dict[str, dict[str, list[dict]]] = {}
     for m in markets.values():
         ev_id = m.get("eventId")
         if ev_id is None:
             continue
+        ev_str = str(ev_id)
+        if ev_str not in prematch_event_ids:
+            continue
+        if not _market_is_active(m):
+            continue
         mname = (m.get("marketName") or "").lower()
-        if "alt" in mname:
+        if _is_non_main_market(mname):
             continue
         mtype = _market_type(m)
         if mtype in _ML_TYPES:
@@ -192,7 +284,6 @@ def fetch_fanduel_snapshots() -> list[OddsSnapshot]:
             kind = "total"
         else:
             continue
-        ev_str = str(ev_id)
         mk_by_event.setdefault(ev_str, {}).setdefault(kind, []).append(m)
 
     polled_at = datetime.now(timezone.utc)
@@ -241,7 +332,13 @@ def fetch_fanduel_snapshots() -> list[OddsSnapshot]:
             elif side == "away":
                 away_ml = _american_from_runner(r) or away_ml
 
-        home_rl_line = home_rl_odds = away_rl_odds = None
+        # FanDuel sometimes publishes both the main Run Line (fav -1.5 /
+        # dog +1.5) and a "reverse" RL (fav +1.5 / dog -1.5) under the
+        # same MATCH_HANDICAP market type. The old loop took the last
+        # runner and could latch onto the reverse, inverting the UI.
+        # Collect every ±1.5 candidate per side, then pick the main.
+        home_rl_cands: list[tuple[float, int]] = []
+        away_rl_cands: list[tuple[float, int]] = []
         for r in _runners_of("rl"):
             side = _runner_side(r, home, away)
             if side not in ("home", "away"):
@@ -253,10 +350,12 @@ def fetch_fanduel_snapshots() -> list[OddsSnapshot]:
             if price is None:
                 continue
             if side == "home":
-                home_rl_line = h
-                home_rl_odds = price
+                home_rl_cands.append((h, price))
             else:
-                away_rl_odds = price
+                away_rl_cands.append((h, price))
+        home_rl_line, home_rl_odds, away_rl_odds = pick_main_run_line(
+            home_rl_cands, away_rl_cands, home_ml, away_ml,
+        )
 
         total_line = over_odds = under_odds = None
         by_line: dict[float, dict[str, int]] = {}

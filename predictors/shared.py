@@ -134,6 +134,12 @@ class TeamStats:
     travel_miles_72h: float = 0.0
     meaningful_game: bool = True   # eliminated teams play differently in Sep
     lineup_confirmed: bool = False
+    # luck-adjusted team strength priors — optional.
+    # pythagorean_win_pct comes from run-differential (Pyth exp 1.83)
+    # third_order_win_pct is BaseRuns-based (FanGraphs "3rd-order W%").
+    # Both provide a less-noisy baseline than raw record.
+    pythagorean_win_pct: Optional[float] = None
+    third_order_win_pct: Optional[float] = None
     starter_confirmed: bool = True
 
 
@@ -168,15 +174,35 @@ class MarketData:
     home_ml_odds: int = -110
     away_ml_odds: int = -110
     opener_home_ml_odds: Optional[int] = None
+    opener_away_ml_odds: Optional[int] = None
     # Run line (assume -1.5 / +1.5 standard)
     home_rl_odds: int = +100   # favorite with -1.5 gets positive odds typically
     away_rl_odds: int = -120
     home_is_rl_favorite: bool = True   # true if home laying -1.5
+    opener_home_rl_odds: Optional[int] = None
+    opener_away_rl_odds: Optional[int] = None
     # Totals
     total_line: float = 8.5
     over_odds: int = -110
     under_odds: int = -110
     opener_total: Optional[float] = None
+    opener_over_odds: Optional[int] = None
+    opener_under_odds: Optional[int] = None
+    # No-vig fair probabilities (consensus across books when >1 available).
+    # Pros treat these as the "market truth"; edge = model_prob - fair_prob.
+    # Populated by odds_client.build_market_data (live) and engine._build_market_data
+    # (backtest). When None, predictors fall back to per-book remove_vig_two_way.
+    fair_prob_home_ml: Optional[float] = None
+    fair_prob_away_ml: Optional[float] = None
+    fair_prob_home_rl: Optional[float] = None
+    fair_prob_away_rl: Optional[float] = None
+    fair_prob_over: Optional[float] = None
+    fair_prob_under: Optional[float] = None
+    # Reverse-line-movement intensity (-1..+1): positive on home/over side means
+    # the line moved toward that side despite public betting against it — classic
+    # sharp tell. Zero when public-split data is unavailable.
+    rlm_score_home: float = 0.0
+    rlm_score_over: float = 0.0
     # Public splits (0-1) — optional sharp/public signal
     public_ticket_pct_home: Optional[float] = None
     public_money_pct_home: Optional[float] = None
@@ -232,6 +258,68 @@ def remove_vig_two_way(odds_a: int, odds_b: int) -> tuple[float, float]:
     pb = american_to_prob(odds_b)
     s = pa + pb
     return pa / s, pb / s
+
+
+def fair_prob_consensus(
+    books_two_way: list[tuple[Optional[int], Optional[int]]],
+) -> tuple[Optional[float], Optional[float]]:
+    """No-vig consensus fair probability from multiple books.
+
+    Input: list of (odds_a, odds_b) tuples, one per book. Books with None
+    on either side are skipped. Each remaining book is de-vigged
+    independently; results are averaged to produce the consensus.
+
+    The average-of-no-vig approach is standard practice among pro bettors
+    — more robust than arithmetic-average-of-raw-odds because it handles
+    asymmetric juice across books, and converges on the true market
+    probability as more sharp books are added.
+
+    Returns (consensus_prob_a, consensus_prob_b); both None if no valid
+    book was provided.
+    """
+    probs_a: list[float] = []
+    probs_b: list[float] = []
+    for oa, ob in books_two_way:
+        if oa is None or ob is None:
+            continue
+        try:
+            pa, pb = remove_vig_two_way(int(oa), int(ob))
+        except (TypeError, ValueError, ZeroDivisionError):
+            continue
+        probs_a.append(pa)
+        probs_b.append(pb)
+    if not probs_a:
+        return None, None
+    mean_a = sum(probs_a) / len(probs_a)
+    mean_b = sum(probs_b) / len(probs_b)
+    return mean_a, mean_b
+
+
+def fair_prob_for_side(
+    market: "MarketData",
+    side: Literal["home_ml", "away_ml", "home_rl", "away_rl", "over", "under"],
+) -> float:
+    """Return the market's best estimate of true probability for one side.
+
+    Prefers MarketData.fair_prob_* (the consensus no-vig across books, set
+    by odds_client / backtest engine). Falls back to remove_vig_two_way on
+    the side's own two-way odds if no consensus was precomputed.
+    """
+    attr = f"fair_prob_{side}"
+    v = getattr(market, attr, None)
+    if v is not None:
+        return float(v)
+    # Fallback per-book de-vig.
+    if side in ("home_ml", "away_ml"):
+        h, a = remove_vig_two_way(market.home_ml_odds, market.away_ml_odds)
+        return h if side == "home_ml" else a
+    if side in ("home_rl", "away_rl"):
+        h, a = remove_vig_two_way(market.home_rl_odds, market.away_rl_odds)
+        return h if side == "home_rl" else a
+    if side in ("over", "under"):
+        o, u = remove_vig_two_way(market.over_odds, market.under_odds)
+        return o if side == "over" else u
+    return 0.5
 
 
 def logistic(x: float) -> float:
@@ -321,6 +409,50 @@ def family_agreement(family_scores: dict, direction: int) -> float:
     if counted == 0:
         return 0.5
     return agree / counted
+
+
+def rlm_intensity(
+    opener_fav_odds: Optional[int],
+    current_fav_odds: Optional[int],
+    public_ticket_pct_fav: Optional[float],
+    steam_flag_fav: bool = False,
+) -> float:
+    """Reverse-line-movement intensity score in [-1, +1].
+
+    Positive = the favored side here is the SHARP side (public bet the
+    other way, line moved toward this side anyway). Negative = public is
+    on this side and the line moved accordingly (no edge).
+
+    Intensity scales with magnitude of movement, hardens if we also see
+    a steam flag, and dampens when public split data is missing.
+    """
+    if opener_fav_odds is None or current_fav_odds is None:
+        return 0.0
+    moved_toward_fav = current_fav_odds < opener_fav_odds
+    delta = abs(current_fav_odds - opener_fav_odds)
+    mag = min(delta / 30.0, 1.0)   # 30 cents = full magnitude
+    # Direction: +1 if fav shortened (late money on fav), else -1
+    direction = 1.0 if moved_toward_fav else -1.0
+    if public_ticket_pct_fav is not None:
+        pub = public_ticket_pct_fav
+        # Classic RLM: movement opposes public action
+        if moved_toward_fav and pub < 0.40:
+            score = mag * 1.0
+        elif moved_toward_fav and pub < 0.50:
+            score = mag * 0.5
+        elif (not moved_toward_fav) and pub > 0.60:
+            score = -mag * 1.0
+        elif (not moved_toward_fav) and pub > 0.50:
+            score = -mag * 0.5
+        else:
+            # Movement aligned with public — no sharp signal
+            score = mag * direction * 0.2
+    else:
+        # No public-split data: movement alone, damped
+        score = mag * direction * 0.4
+    if steam_flag_fav:
+        score += 0.25 if direction > 0 else -0.25
+    return max(-1.0, min(1.0, score))
 
 
 def market_sharpness(market: MarketData, side: Literal["home", "away", "over", "under"]) -> float:

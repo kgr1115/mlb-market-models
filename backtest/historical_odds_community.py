@@ -109,9 +109,17 @@ def _load_full_dataset(local_cache_dir: str) -> dict:
     return _DATA_CACHE
 
 
+def _default_cache_dir() -> str:
+    # Project-local cache/ folder — cross-platform; prior default `/tmp/bbp`
+    # didn't exist on Windows.
+    return os.path.join(os.getcwd(), "cache")
+
+
 def load_community_season_odds(season: int,
-                               local_cache_dir: str = "/tmp/bbp"
+                               local_cache_dir: Optional[str] = None,
                                ) -> dict:
+    if local_cache_dir is None:
+        local_cache_dir = _default_cache_dir()
     full = _load_full_dataset(local_cache_dir)
     if not full:
         return {}
@@ -181,6 +189,7 @@ def load_community_season_odds(season: int,
                 away_rl_line=_to_float(rl_away_line),
                 away_rl_price=_to_int(rl_away_odds),
                 home_rl_line=_to_float(rl_home_line),
+                home_rl_price=_to_int(rl_home_odds),
                 total_close=_to_float(tot_line),
                 total_over_close=_to_int(tot_over),
                 total_under_close=_to_int(tot_under),

@@ -191,7 +191,22 @@ def load_baseline(season: int) -> BaselineStats:
             meltdown_pct=0.14, shutdown_pct=0.30,
         )
 
-    defense = {t: DefenseStats() for t in offense}  # traditional API has no OAA
+    # Populate OAA from Savant Fielder leaderboard cache (task #44).
+    # DRS / framing / BsR remain at defaults (0) — OAA alone is 40% of
+    # defense_score weight, enough to break the silencing that kept the
+    # ML defense family fully dormant. See data/fielding_history.py.
+    try:
+        from data.fielding_history import (
+            prewarm_season as _prewarm_oaa,
+            save_cache as _save_oaa,
+            get_team_oaa,
+        )
+        _prewarm_oaa(season)
+        _save_oaa()
+        defense = {t: DefenseStats(oaa=get_team_oaa(t, season)) for t in offense}
+    except Exception as e:
+        log.warning("defense OAA populate failed for %d (%s); falling back to zeros", season, e)
+        defense = {t: DefenseStats() for t in offense}
 
     # --- Individual pitcher stats (for SP lookup) ---
     pitchers: dict[str, PitcherStats] = {}

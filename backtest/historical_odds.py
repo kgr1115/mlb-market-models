@@ -23,7 +23,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
-import openpyxl
+# openpyxl is only needed for the SBR loader (2018-19 seasons). Importing
+# it lazily inside load_sbr_season_odds() lets callers run backtests on
+# community / livecache seasons without installing it.
 
 from data.odds_models import make_event_id
 from data.team_names import FG_ABBR_TO_CANONICAL
@@ -167,9 +169,21 @@ def _download_sbr(season: int, path: str) -> bool:
 
 
 def load_sbr_season_odds(season: int,
-                         local_cache_dir: str = "/tmp/bbp"
+                         local_cache_dir: Optional[str] = None,
                          ) -> dict[str, HistoricalOdds]:
     """Return a dict event_id -> HistoricalOdds for the entire season."""
+    try:
+        import openpyxl
+    except ImportError as e:
+        log.error(
+            "openpyxl not installed — SBR loader (2018-19) is unavailable. "
+            "Run `pip install openpyxl` if you need those seasons, or use "
+            "`--seasons` / `--no-livecache=off` to skip SBR-dependent seasons."
+        )
+        raise
+    if local_cache_dir is None:
+        # Project-local cache/ — cross-platform; /tmp/bbp didn't exist on Windows.
+        local_cache_dir = os.path.join(os.getcwd(), "cache")
     os.makedirs(local_cache_dir, exist_ok=True)
     path = os.path.join(local_cache_dir, f"mlb-odds-{season}.xlsx")
     if not os.path.exists(path):

@@ -100,6 +100,79 @@ class OddsSnapshot:
         )
 
 
+def pick_main_run_line(
+    home_candidates: list[tuple[float, int]],
+    away_candidates: list[tuple[float, int]],
+    home_ml: Optional[int],
+    away_ml: Optional[int],
+) -> tuple[Optional[float], Optional[int], Optional[int]]:
+    """Select the MAIN baseball Run Line from a book's candidate selections.
+
+    Some books publish both the main RL (favorite -1.5 / dog +1.5) and a
+    "reverse" RL (favorite +1.5 / dog -1.5) under the same market type.
+    Simple "last one wins" parsing can latch onto the reverse line and
+    invert the UI — e.g. showing the ML favorite as a +1.5 -189 price when
+    they should be at -1.5 +180.
+
+    Each candidate is (handicap, american_price). Handicap is +1.5 or -1.5.
+    This helper pairs them up (handicaps must sum to ~0 across home/away)
+    and picks the pair that:
+      (a) matches the ML favorite direction — ML fav's RL line should be
+          -1.5 with *positive* odds, and
+      (b) if ML is unavailable / pick'em, falls back to juice-sign: in the
+          MAIN run line the side at -1.5 has POSITIVE odds (harder bet
+          → better payout) and the side at +1.5 has NEGATIVE odds.
+
+    Returns (home_rl_line, home_rl_odds, away_rl_odds) for the chosen pair,
+    or (None, None, None) if no clean pair can be found.
+    """
+    if not home_candidates or not away_candidates:
+        return None, None, None
+
+    # Build valid pairs: home (h_h, h_p) + away (a_h, a_p) where handicaps
+    # mirror each other within a small epsilon.
+    pairs: list[tuple[float, int, int]] = []  # (home_h, home_p, away_p)
+    for h_h, h_p in home_candidates:
+        for a_h, a_p in away_candidates:
+            if abs(h_h + a_h) < 0.01:
+                pairs.append((h_h, h_p, a_p))
+
+    if not pairs:
+        return None, None, None
+
+    # Determine ML-favorite direction.
+    ml_fav: Optional[str] = None  # "home" | "away" | None
+    if home_ml is not None and away_ml is not None:
+        if home_ml < away_ml:
+            ml_fav = "home"
+        elif away_ml < home_ml:
+            ml_fav = "away"
+
+    # Preferred pair: ML favorite is the -1.5 side AND gets positive odds.
+    if ml_fav == "home":
+        for h_h, h_p, a_p in pairs:
+            if h_h < 0 and h_p > 0:
+                return h_h, h_p, a_p
+    elif ml_fav == "away":
+        for h_h, h_p, a_p in pairs:
+            # Away is the -1.5 side when home_h > 0.
+            if h_h > 0 and a_p > 0:
+                return h_h, h_p, a_p
+
+    # Fallback (no ML or no juice-aligned candidate): pick the pair whose
+    # juice matches the MAIN-line pattern: -1.5 side has positive odds
+    # and +1.5 side has negative odds.
+    for h_h, h_p, a_p in pairs:
+        if h_h < 0 and h_p > 0 and a_p < 0:
+            return h_h, h_p, a_p
+        if h_h > 0 and h_p < 0 and a_p > 0:
+            return h_h, h_p, a_p
+
+    # Last resort: return the first pair as-is.
+    h_h, h_p, a_p = pairs[0]
+    return h_h, h_p, a_p
+
+
 def make_event_id(game_time_utc: datetime, away_team: str, home_team: str) -> str:
     """Deterministic cross-book event key.
 

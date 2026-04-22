@@ -150,7 +150,11 @@ def _ensure_projections_fresh(slate: _SlateCache) -> None:
 
 
 def _ensure_odds_fresh(slate: _SlateCache) -> None:
-    """Poll DK + Pinnacle and persist to OddsCache (if past TTL)."""
+    """Poll DK + FD + Pinnacle and persist to OddsCache (if past TTL).
+
+    Pinnacle is still scraped (useful as a sharp reference in diagnostics)
+    but is excluded from consensus and the per-book UI.
+    """
     if not slate.needs_odds_refresh():
         return
     try:
@@ -267,8 +271,9 @@ def build_per_book_markets_live(game: dict, slate: _SlateCache
                                 ) -> dict[str, MarketData]:
     """Return {book_label: MarketData} for one game, trying ±1 UTC day.
 
-    Empty dict if no books have snapshots. Keys are "draftkings",
-    "fanduel", "pinnacle" (whichever are present in the cache).
+    Empty dict if no books have snapshots. Keys are "draftkings" and
+    "fanduel" (whichever are present in the cache). Pinnacle data is
+    intentionally excluded — see data.odds_client.build_market_data.
     """
     ev = odds_event_id_from_api_game(game)
     if not ev:
@@ -371,6 +376,46 @@ def _line_for_side(md: MarketData, side_key: str) -> Optional[float]:
     return None
 
 
+def _format_pick_for_book(
+    market_name: str,
+    side_key: str,
+    md: MarketData,
+    original_pick: str,
+) -> str:
+    """Rebuild the pick label using the chosen book's own line/orientation.
+
+    Different books can disagree on who is the RL favorite, or post
+    different totals. The predictor's original pick string is computed
+    from the consensus MarketData, so routing a rec to a book whose line
+    differs from the consensus would leave a stale label (e.g. showing
+    "AWAY +1.5 +164" when the book actually has that team at -1.5).
+    This rebuild keeps the semantic team/side the same but writes the
+    ±1.5 / total using the book we're recommending.
+    """
+    if market_name == "moneyline":
+        if side_key == "home_ml":
+            return "HOME"
+        if side_key == "away_ml":
+            return "AWAY"
+        return original_pick
+    if market_name == "run_line":
+        if side_key == "home_rl":
+            line = "-1.5" if md.home_is_rl_favorite else "+1.5"
+            return f"HOME {line}"
+        if side_key == "away_rl":
+            line = "+1.5" if md.home_is_rl_favorite else "-1.5"
+            return f"AWAY {line}"
+        return original_pick
+    if market_name == "totals":
+        total = md.total_line if md.total_line is not None else ""
+        if side_key == "over":
+            return f"OVER {total}".strip()
+        if side_key == "under":
+            return f"UNDER {total}".strip()
+        return original_pick
+    return original_pick
+
+
 def _ev_per_unit(american_odds: int, true_prob: float) -> float:
     """EV per $1 risked: p*win - (1-p)."""
     if american_odds >= 100:
@@ -436,9 +481,30 @@ def recommendations_from_predictions(
                 best_book = b
         if best_book is None:
             continue
+        # Rebuild the pick label against the book we're routing to — the
+        # predictor's original label is written from the consensus line,
+        # which can disagree with the best book's orientation (e.g. DK
+        # has STL -1.5 while Pinnacle/consensus have MIA -1.5). Keep the
+        # same semantic side (HOME/AWAY/OVER/UNDER) but re-derive the
+        # ±1.5 / total from the best book's MarketData, then append the
+        # best-book odds so the label matches p.pick's format
+        # ("AWAY -1.5 +164") and renders identically in the Daily Picks
+        # and game-detail views.
+        best_md = per_book.get(best_book)
+        if best_md is not None:
+            side_label = _format_pick_for_book(
+                market_name, side, best_md, getattr(pred, "pick", "")
+            )
+        else:
+            side_label = getattr(pred, "pick", "")
+        if best_odds is not None:
+            odds_str = f"+{best_odds}" if best_odds > 0 else f"{best_odds}"
+            displayed_pick = f"{side_label} {odds_str}".strip()
+        else:
+            displayed_pick = side_label
         recs.append({
             "market": market_name,
-            "pick": getattr(pred, "pick", ""),
+            "pick": displayed_pick,
             "model_prob": round(true_prob, 4),
             "side": side,
             "best_book": best_book,

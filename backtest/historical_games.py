@@ -53,7 +53,14 @@ def _fetch_json(url: str) -> dict:
 
 
 def _db_path() -> str:
-    return os.environ.get("BBP_BACKTEST_CACHE", "/tmp/bbp_backtest.sqlite")
+    # Default path: project-local cache/ dir (cross-platform; /tmp doesn't
+    # exist on Windows). Override via env var if you want it elsewhere.
+    override = os.environ.get("BBP_BACKTEST_CACHE")
+    if override:
+        return override
+    cache_dir = os.path.join(os.getcwd(), "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, "bbp_backtest.sqlite")
 
 
 def _init_cache(conn: sqlite3.Connection) -> None:

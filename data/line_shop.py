@@ -158,7 +158,7 @@ class ShoppedMarket:
 # =============================================================================
 
 ALL_BOOKS: tuple[OddsBook, ...] = (
-    OddsBook.PINNACLE, OddsBook.DRAFTKINGS, OddsBook.FANDUEL,
+    OddsBook.DRAFTKINGS, OddsBook.FANDUEL,
 )
 
 

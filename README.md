@@ -6,15 +6,27 @@ The project was built end-to-end with AI assistance: research → feature design
 
 ---
 
-## Current status (2026-04-20)
+## Current status (2026-04-21)
 
 This is a research project, not a shipped product.
 
-- **Run Line** shows a positive out-of-sample test ROI after a targeted feature-wiring fix (details in *Iteration history* below). Numbers from the 2018–22 train / 2023–25 test split: `+23.6% ROI` at the current gate (n=4,115) and `+31.2% ROI` tuned (n=1,407). Still needs verification through the full engine path before any real-money use.
-- **Moneyline** and **Totals** have **negative** out-of-sample test ROI at every threshold combination we grid-searched. The feature set does not produce information that DraftKings closing lines haven't already priced in. They're kept in the repo as working scaffolding for future feature work, not as picks to follow.
-- The web UI renders predictions and a backtest dashboard, but the live-data pipeline still falls back to a mock-game generator in several places. The *shape* is production-quality; the *data wiring* is partial.
+Full-corpus backtest (2018–2026 partial, n=14,531 gated bets) with `--weather --ump` and defense-OAA always-on:
 
-"Useful as a framework, honest about its edge" is the accurate one-line summary.
+| Market     | Bets  | Win%  | ROI      |
+| ---------- | ----- | ----- | -------- |
+| Moneyline  | 4,887 | 48.3% | −1.37%   |
+| Run Line   | 4,802 | 56.7% | −1.86%   |
+| **Totals** | 4,842 | 53.3% | **+1.43%** |
+| **Pooled** | 14,531 | 52.7% | **−0.60%** |
+
+- **Totals** is the only market positively-EV, driven by the recent weather + umpire dormant-family unlocks.
+- **Moneyline** and **Run Line** are within ~1.5pp of break-even after the defense-OAA unlock. Structural floor, not threshold-tuneable.
+- The recent populate-the-dormant-families arc (see *Iteration history* §7) moved pooled ROI from **−2.15% → −0.60%** (+1.55pp) across April 2026 — three structural unlocks (weather, umpire, defense), no new feature engineering.
+- A learned-weight refit was attempted on the new feature set and **reverted** — log-loss improved but ROI regressed because the gate concentrates ROI in the confidence tail while log-loss averages uniformly.
+- The web UI renders predictions and a backtest dashboard, but the live-data pipeline still falls back to a mock-game generator in several places. The *shape* is production-quality; the *data wiring* is partial.
+- **ABS risk**: the model does not yet account for MLB's 2026 ABS Challenge System (live since Opening Day 2026-03-25). Career-ump-R/G priors partially misprice 2026 games. See *Known limitations* §ABS.
+
+"Useful as a framework, honest about its edge" is still the accurate one-line summary — now with three markets' worth of edge visible only on Totals.
 
 ---
 
@@ -211,44 +223,49 @@ python analyze_families.py           # per-family correlation + agree/disagree-R
 
 ## Backtest numbers
 
-Pulled verbatim from `web/backend/backtest_results*.json`. These are the **gated** bets — picks that cleared `MIN_EDGE` and the per-market confidence threshold — not the full universe of predictions. Assumes flat 1-unit staking on each bet; the Kelly-sized version in `bet_selection/` is separate.
+Pulled from `run_multi_backtest.py --weather --ump`, regenerated 2026-04-21 after the defense-OAA unlock. These are the **gated** bets — picks that cleared `MIN_EDGE` and the per-market confidence threshold — not the full universe of predictions. Assumes flat 1-unit staking on each bet; the Kelly-sized version in `bet_selection/` is separate.
 
-Two important caveats before reading the numbers:
+### Pooled results (2018-03-29 → 2026-04-20 partial)
 
-1. **These are pooled across 2018–2025** — in-sample and out-of-sample mixed. The honest out-of-sample picture is the train/test split in the *Iteration history* section below. Moneyline and Totals look less bad here than they do there.
-2. **Run Line benefits from the 2026-04-20 market-family fix** across the full corpus. The fix is legitimate (it was validated on a proper 2018–22 / 2023–25 split before these JSONs were regenerated), but the +20% pooled RL ROI should be read with that in mind.
-
-### Pooled results (2018-03-29 → 2025-08-17)
-
-| Scope              | Bets   | Win%  | Units | ROI%   |
-| ------------------ | ------ | ----- | ----- | ------ |
-| **All markets**    | 13,010 | 58.9% | +1,458.8 | **+11.21%** |
-| Moneyline          | 4,533  | 47.6% | −113.2   | −2.50% |
-| **Run Line**       | 7,907  | 66.1% | +1,616.5 | **+20.44%** |
-| Totals             | 570    | 48.0% | −44.5    | −7.81% |
+| Scope              | Bets   | Win%  | Units   | ROI%   |
+| ------------------ | ------ | ----- | ------- | ------ |
+| **All markets**    | 14,531 | 52.7% | −86.91  | **−0.60%** |
+| Moneyline          | 4,887  | 48.3% | —       | −1.37% |
+| Run Line           | 4,802  | 56.7% | —       | −1.86% |
+| **Totals**         | 4,842  | 53.3% | —       | **+1.43%** |
 
 | Confidence | Bets  | Win%  | ROI%    |
 | ---------- | ----- | ----- | ------- |
-| MEDIUM     | 6,706 | 55.3% | +5.12%  |
-| **HIGH**   | 6,286 | 62.7% | **+17.74%** |
+| MEDIUM     | 7,349 | 53.1% | −1.57%  |
+| HIGH       | 7,011 | 52.3% | +0.41%  |
 
 LOW and LEAN are 0-bet — the gates filter them out.
 
 ### Per-season breakdown
 
-| Year | Bets  | Win%  | Pooled ROI | ML ROI (n)     | RL ROI (n)     | Totals ROI (n) |
-| ---- | ----- | ----- | ---------- | -------------- | -------------- | -------------- |
-| 2018 | 1,141 | 53.9% | +2.73%     | +5.71% (554)   | +0.94% (495)   | −5.60% (92)    |
-| 2019 | 1,214 | 54.1% | +1.54%     | +2.68% (620)   | +2.56% (497)   | −10.91% (97)   |
-| 2021 | 2,281 | 57.5% | +10.28%    | −8.71% (830)   | +22.68% (1,357) | −1.02% (94)    |
-| 2022 | 2,223 | 59.7% | +12.62%    | −4.47% (693)   | +22.26% (1,444) | −11.66% (86)   |
-| 2023 | 2,207 | 62.1% | +16.47%    | +0.43% (701)   | +25.21% (1,473) | −33.09% (33)   |
-| 2024 | 2,334 | 58.7% | +10.51%    | −10.88% (740)  | +22.88% (1,495) | −16.40% (99)   |
-| 2025 | 1,610 | 62.7% | +17.72%    | +4.92% (395)   | +22.38% (1,146) | +13.56% (69)   |
+| Year | Bets  | Win%  | Pooled ROI | Notes                                      |
+| ---- | ----- | ----- | ---------- | ------------------------------------------ |
+| 2018 | 2,009 | 55.6% | +5.55%     | SBR, in-train                              |
+| 2019 | 2,064 | 53.9% | +1.72%     | SBR, in-train                              |
+| 2021 | 2,459 | 48.0% | −6.30%     | Community DK, in-train                     |
+| 2022 | 2,130 | 52.5% | −1.01%     | In-train                                   |
+| 2023 | 2,261 | 55.1% | +2.85%     | Out-of-sample                              |
+| 2024 | 2,147 | 50.5% | −6.31%     | Out-of-sample; 2024 remains the worst year |
+| 2025 | 1,443 | 54.8% | +1.14%     | Out-of-sample; partial (through mid-Aug)   |
+| 2026 | 18    | 44.4% | −15.34%    | Partial, ~4 weeks; n too small to weigh    |
 
-Reading the table left-to-right across a season, the pattern is consistent: RL carries the pool, ML oscillates around break-even-to-negative, and Totals is noisy on small samples (86–99 bets most years, just 33 in 2023). 2025 is partial (through mid-August) and the only year every market was positive — too small a sample to conclude anything from.
+### Structural-unlock progression (April 2026)
 
-The honest way to read this: the pooled +11.21% is mostly an RL story layered on a corpus where the RL market-family fix was wired in before these JSONs were generated. The **proper** bet-or-not decision is the train/test split in the next section, and it says ship RL only.
+Three consecutive dormant-family populates, each measured on the same `--weather --ump` invocation:
+
+| Change                  | Pooled ROI | Totals | ML     | RL     |
+| ----------------------- | ---------- | ------ | ------ | ------ |
+| Baseline (no populates) | −2.15%     | −1.35% | −2.42% | −3.06% |
+| + weather (Open-Meteo)  | −1.78%     | +0.42% | −2.35% | −3.36% |
+| + umpire (career R/G)   | −1.30%     | +1.43% | −2.35% | −3.36% |
+| + defense (OAA)         | **−0.60%** | +1.43% | **−1.37%** | **−1.86%** |
+
+Each unlock followed the same pattern: populating a silent family contributed some of its own signal, but most of the ROI lift came from *neighbor cleanup* — the model stopped over-weighting whichever family had been absorbing the missing signal. The defense populate is the most dramatic: +0.70pp of pooled ROI lift, almost entirely via ML/RL (totals doesn't consume defense).
 
 ---
 
@@ -367,12 +384,32 @@ Important caveats:
 - The null RL test ROI of +17.49% on 5,725 bets is high enough that independent verification through the regular engine backtest path — not the collector — is still required before any live deployment.
 - ML and Totals remain at defensive gates; both still show negative test ROI.
 
-### 6. Infrastructure investments that paid off
+### 6. Dormant-family unlocks (April 2026) — the single highest-leverage work
+
+Per-family analysis after the RL market fix kept surfacing the same complaint: families that were coded but **silenced** by missing input data. The harness was passing them zero (league-mean) every row, so they contributed nothing to the edge score but also absorbed tuning pressure from their neighbors. Three successive populates:
+
+- **Weather** (`data/weather_history.py` — Open-Meteo historical archive, range-fetch: 30 API calls per season). Populated Totals' 12%-weight weather family; pooled ROI **−2.15% → −1.78%** and Totals crossed positive for the first time (**−1.35% → +0.42%**). Out-of-sample test period improved +2.88pp.
+- **Umpire** (`data/umpire_history.py` — MLB Stats API `hydrate=officials` for ~19k historical games, self-computed career R/G via chronological running mean). Populated Totals' 5%-weight umpire family; pooled **−1.78% → −1.30%**, Totals **+0.42% → +1.43%**. The umpire family's own TEST delta is near-zero — the gain is neighbor cleanup (park went from −6.78% ANTI to −2.74%, pace firmed to +16.90%).
+- **Defense OAA** (`data/fielding_history.py` — Baseball Savant Fielder CSV, team-aggregated via `display_team_name`). Populated Moneyline's 7%-weight defense family (OAA only — 40% of `defense_score`); pooled **−1.30% → −0.60%**, **ML −2.35% → −1.37%** (+0.98pp), **RL −3.36% → −1.86%** (+1.50pp). Totals unchanged (no defense term).
+
+Reliable pattern: populating a zero-filled family lifts ROI primarily through *neighbor rebalancing*, not the family's own signal. The dormant family had been a vacuum that pulled the hand-tuned weights of active families off-target. Plugging it in lets those active families carry their weight.
+
+### 7. Learned-weight refit — improved log-loss, regressed ROI, reverted
+
+After the three unlocks, an L2-logistic refit (`learn_weights.py`) was run on the new feature set. TEST log-loss improved meaningfully (ML +0.00872, RL +0.00368) and the suggested weights were directionally sensible (bullpen underweighted, market dominant on RL). Applied to both `MONEYLINE_WEIGHTS` and `RUN_LINE_WEIGHTS`.
+
+Result: pooled ROI **−0.60% → −0.76%**. Both ML and RL regressed ~0.17pp. **Reverted.**
+
+The lesson is a textbook one: log-loss is averaged uniformly across all predictions; ROI lives in the tail of picks that pass the edge gate. Learned coefs flatten confidence (better calibration overall) but push more borderline picks past the threshold without real edge. Hand-tuned weights produce sharper-tailed confidence that happens to match the gate's selection criterion.
+
+A useful future fit would either (a) weight the loss by Kelly stake, or (b) fit only on gate-passed bets (selection-stratified). The uniform L2-logistic is not the right objective for a gated-ROI target.
+
+### 8. Infrastructure investments that paid off
 
 - **Ungated prediction corpus** (`backtest/ungated_predictions.csv`) — dumping every raw pick keyed to (event, market) means we can replay any feature experiment without re-running the full backtest.
-- **Historical weather client** (`data/weather_history.py`) — Open-Meteo archive with on-disk JSON cache, shares `VENUES` and `_classify_wind` with the live weather module for a single source of orientation truth.
+- **Historical weather / umpire / fielding caches** — `data/weather_history.py`, `data/umpire_history.py`, `data/fielding_history.py` each own a JSON on-disk cache (`data/cache/*.json`) keyed by season so the prewarms are one-shot and survive across runs. Each module is self-contained with its own throttling and BOM handling.
 - **`_BYPASS_GATES` flag** — kept wired in the predictors so the ungated collector can always be re-run as features change.
-- **Self-documenting FIXMEs** — e.g. the umpire-per-game fallback in `live_data.py` now uses `_LEAGUE["ump_runs_per_game"]` with a FIXME pointing to the missing data source, rather than a silent hardcode.
+- **Self-documenting FIXMEs** — e.g. the umpire-per-game fallback in `live_data.py` originally used `_LEAGUE["ump_runs_per_game"]` with a FIXME pointing to the missing data source; that FIXME became task #42 once enough of the rest was populated to show the silencing effect.
 
 ---
 
@@ -417,10 +454,11 @@ If there's one portable lesson here, it's the one implied by the bullet above ab
 
 ## Known limitations and next steps
 
+- **ABS (Automated Ball-Strike Challenge System) not modeled.** Live in MLB since Opening Day 2026-03-25. ~55% of challenged pitches get overturned, compressing per-ump zone dispersion toward league mean. Our career-R/G priors over-state 2026 ump effects. Same concern applies to catcher framing (not yet populated). Mitigation ideas: (a) blend 2026+ career R/G toward league mean by expected overturn fraction, (b) pull per-ump ABS accuracy from [`baseballsavant.mlb.com/abs`](https://baseballsavant.mlb.com/abs) once ≥60 games of 2026 data are in. Too few 2026 bets so far (n=18 as of 2026-04-21) to tune a dampening coefficient without overfitting.
 - **Live-data wiring is partial.** `web/backend/api.py` falls back to a mock game generator in places where the full live pipeline (lineups × odds × weather × projections) isn't yet assembled. The dataclass contract is stable; the ingestion glue isn't all there.
 - **No automated tests.** The ungated prediction CSV + train/test grid search acts as an integration harness, but there's no unit test suite yet.
-- **Totals fix path is clear but not done.** (1) populate weather/umpire/pace/market in the backtest harness (4 of 8 families are currently zero), (2) fit family weights and signs from data via a calibrated regression rather than hand-chosen coefficients.
-- **Moneyline remains flat.** The closing line absorbs pitcher/bullpen/offense reputation cleanly. Meaningful edge would probably require pre-pitch Savant features, bullpen availability granularity, or a switch from closing to opening lines.
+- **Defense OAA only — DRS, framing, BsR still at league mean.** OAA alone (40% of `defense_score`) was enough to unblock the ML defense family, but expanding to DRS (30%) and framing (20%) would bring the rest of the weight on-line. Savant's catcher-framing Team endpoint anonymizes team names and DRS isn't on Savant at all — would need Baseball Reference HTML scraping or an alternate data stack.
+- **Moneyline and Run Line remain slightly negative.** After the three unlocks, ML sits at −1.37% and RL at −1.86%. The closing line absorbs pitcher/bullpen/offense reputation cleanly. Remaining levers: expand defense (above), populate ML situational (rest/travel/form gated on the new feature set), or fit learned weights against a Kelly-weighted / selection-stratified loss.
 - **No live execution** — by design. The bet-selection modules (`bet_selection/kelly.py`, `ranker.py`, `bankroll.py`, `slip.py`) produce a ranked, Kelly-sized slip, but nothing in the project places wagers with a sportsbook.
 
 ---

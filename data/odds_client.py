@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from predictors import MarketData
+from predictors.shared import fair_prob_consensus, rlm_intensity
 
 from .odds_cache import OddsCache
 from .odds_draftkings import fetch_draftkings_snapshots
@@ -97,22 +98,26 @@ def build_market_data(cache: OddsCache, event_id: str,
     Strategy:
       - When shop=True (default): prices come from whichever book has
         the best price per side (see data.line_shop.shop_event).
-      - When shop=False: current prices come from Pinnacle (sharp
-        anchor) if available, else DK.
-      - Opener prices: earliest Pinnacle snapshot for this event, else
-        earliest DK snapshot.
+      - When shop=False: current prices come from DK if available,
+        else FD.
+      - Opener prices: earliest DK snapshot for this event, else
+        earliest FD snapshot.
+
+    Pinnacle data is intentionally NOT used for consensus or predictions
+    — it's not a routable book for the user, and mixing its pricing into
+    the consensus produced picks that looked good but couldn't be bet.
 
     Returns None if neither book has any snapshot for this event yet.
     """
-    pin_latest = cache.latest(OddsBook.PINNACLE, event_id)
     dk_latest = cache.latest(OddsBook.DRAFTKINGS, event_id)
-    latest = pin_latest or dk_latest
+    fd_latest = cache.latest(OddsBook.FANDUEL, event_id)
+    latest = dk_latest or fd_latest
     if latest is None:
         return None
 
-    pin_opener = cache.opener(OddsBook.PINNACLE, event_id)
     dk_opener = cache.opener(OddsBook.DRAFTKINGS, event_id)
-    opener = pin_opener or dk_opener
+    fd_opener = cache.opener(OddsBook.FANDUEL, event_id)
+    opener = dk_opener or fd_opener
 
     md = MarketData()
 
@@ -156,24 +161,90 @@ def build_market_data(cache: OddsCache, event_id: str,
     if shopped is not None:
         md.shopped = shopped  # type: ignore[attr-defined]
 
-    # Steam detection
-    if pin_latest and dk_latest:
-        if (pin_opener and dk_opener and
-            pin_latest.total_line is not None and pin_opener.total_line is not None and
-            dk_latest.total_line is not None and dk_opener.total_line is not None):
-            both_up = (pin_latest.total_line > pin_opener.total_line and
-                       dk_latest.total_line > dk_opener.total_line)
-            both_down = (pin_latest.total_line < pin_opener.total_line and
-                         dk_latest.total_line < dk_opener.total_line)
+    # No-vig fair-prob consensus across DK + FD. Pinnacle is excluded
+    # (sharp reference, but not routable for the user). If only one of
+    # DK/FD has a given market, the consensus = that single de-vigged
+    # book. Predictors pick these up via fair_prob_for_side().
+    def _snap_pair(snap, side: str) -> tuple[Optional[int], Optional[int]]:
+        if snap is None:
+            return (None, None)
+        if side == "ml":
+            return (snap.home_ml, snap.away_ml)
+        if side == "rl":
+            return (snap.home_rl_odds, snap.away_rl_odds)
+        if side == "total":
+            return (snap.over_odds, snap.under_odds)
+        return (None, None)
+
+    ml_pairs = [_snap_pair(dk_latest, "ml"), _snap_pair(fd_latest, "ml")]
+    rl_pairs = [_snap_pair(dk_latest, "rl"), _snap_pair(fd_latest, "rl")]
+    tot_pairs = [_snap_pair(dk_latest, "total"), _snap_pair(fd_latest, "total")]
+    fh, fa = fair_prob_consensus(ml_pairs)
+    if fh is not None:
+        md.fair_prob_home_ml = fh
+        md.fair_prob_away_ml = fa
+    fh, fa = fair_prob_consensus(rl_pairs)
+    if fh is not None:
+        md.fair_prob_home_rl = fh
+        md.fair_prob_away_rl = fa
+    fo, fu = fair_prob_consensus(tot_pairs)
+    if fo is not None:
+        md.fair_prob_over = fo
+        md.fair_prob_under = fu
+
+    # RLM intensity scores — computed from opener→current movement
+    # against public splits. +1 = sharp action on home/over.
+    md.rlm_score_home = rlm_intensity(
+        opener_fav_odds=md.opener_home_ml_odds,
+        current_fav_odds=md.home_ml_odds,
+        public_ticket_pct_fav=md.public_ticket_pct_home,
+        steam_flag_fav=md.steam_flag_home,
+    )
+    if md.opener_total is not None:
+        # For totals, "fav" = over. Total moving UP = over taking money.
+        # rlm_intensity treats shortening (current < opener) as fav
+        # money, so encode total move with a SIGN FLIP: a +0.5-run move
+        # UP maps to -20 cents, which looks like "fav shortened".
+        synth_opener = 0
+        synth_current = -int(round((md.total_line - md.opener_total) * 40))
+        md.rlm_score_over = rlm_intensity(
+            opener_fav_odds=synth_opener,
+            current_fav_odds=synth_current,
+            public_ticket_pct_fav=md.public_ticket_pct_over,
+            steam_flag_fav=md.steam_flag_over,
+        )
+
+    # Opener odds — populate all sides where available, for RLM scoring
+    if opener:
+        if opener.away_ml is not None:
+            md.opener_away_ml_odds = opener.away_ml
+        if opener.home_rl_odds is not None:
+            md.opener_home_rl_odds = opener.home_rl_odds
+        if opener.away_rl_odds is not None:
+            md.opener_away_rl_odds = opener.away_rl_odds
+        if opener.over_odds is not None:
+            md.opener_over_odds = opener.over_odds
+        if opener.under_odds is not None:
+            md.opener_under_odds = opener.under_odds
+
+    # Steam detection — both DK and FD moved the same direction
+    if dk_latest and fd_latest:
+        if (dk_opener and fd_opener and
+            dk_latest.total_line is not None and dk_opener.total_line is not None and
+            fd_latest.total_line is not None and fd_opener.total_line is not None):
+            both_up = (dk_latest.total_line > dk_opener.total_line and
+                       fd_latest.total_line > fd_opener.total_line)
+            both_down = (dk_latest.total_line < dk_opener.total_line and
+                         fd_latest.total_line < fd_opener.total_line)
             if both_up or both_down:
                 md.steam_flag_over = both_up
 
-        if (pin_opener and dk_opener and
-            pin_latest.home_ml is not None and pin_opener.home_ml is not None and
-            dk_latest.home_ml is not None and dk_opener.home_ml is not None):
-            pin_shorter = pin_latest.home_ml < pin_opener.home_ml
+        if (dk_opener and fd_opener and
+            dk_latest.home_ml is not None and dk_opener.home_ml is not None and
+            fd_latest.home_ml is not None and fd_opener.home_ml is not None):
             dk_shorter = dk_latest.home_ml < dk_opener.home_ml
-            md.steam_flag_home = pin_shorter and dk_shorter
+            fd_shorter = fd_latest.home_ml < fd_opener.home_ml
+            md.steam_flag_home = dk_shorter and fd_shorter
 
     return md
 
@@ -222,11 +293,11 @@ def build_per_book_markets(
 ) -> dict[str, MarketData]:
     """Return {book_label: MarketData} for every book that has a snapshot.
 
-    Pinnacle is included so downstream consumers can use it as a
-    fair-line anchor; the frontend decides whether to display it.
+    Only DK + FD are returned. Pinnacle is a sharp anchor but the user
+    can't route bets to it, so it's intentionally excluded from the UI.
     """
     if books is None:
-        books = (OddsBook.DRAFTKINGS, OddsBook.FANDUEL, OddsBook.PINNACLE)
+        books = (OddsBook.DRAFTKINGS, OddsBook.FANDUEL)
     out: dict[str, MarketData] = {}
     for b in books:
         s = cache.latest(b, event_id)
@@ -250,7 +321,7 @@ def build_per_book_opening_markets(
     a given book, that book is simply omitted from the result.
     """
     if books is None:
-        books = (OddsBook.DRAFTKINGS, OddsBook.FANDUEL, OddsBook.PINNACLE)
+        books = (OddsBook.DRAFTKINGS, OddsBook.FANDUEL)
 
     # Durable opener table — optional, may not exist if the collector
     # never ran. Load lazily to avoid a hard dependency.

@@ -5,43 +5,46 @@
     "days": 185
   },
   "totals": {
-    "bets": 2281,
-    "wins": 1309,
-    "losses": 968,
-    "pushes": 4,
-    "win_pct": 0.575,
-    "units_won": 234.57,
-    "roi_pct": 10.28,
+    "bets": 2459,
+    "wins": 1169,
+    "losses": 1264,
+    "pushes": 26,
+    "win_pct": 0.48,
+    "units_won": -153.17,
+    "roi_pct": -6.3,
     "starting_bankroll": 1000.0,
-    "ending_bankroll": 1234.57
+    "ending_bankroll": 846.83
   },
   "by_market": {
     "moneyline": {
-      "bets": 830,
-      "wins": 355,
-      "losses": 475,
+      "bets": 978,
+      "wins": 414,
+      "losses": 564,
       "pushes": 0,
-      "win_pct": 0.428,
-      "units_won": -72.31,
-      "roi_pct": -8.71
+      "win_pct": 0.423,
+      "units_won": -93.48,
+      "roi_pct": -9.56,
+      "avg_edge_pct": 15.72
     },
     "run_line": {
-      "bets": 1357,
-      "wins": 908,
-      "losses": 449,
+      "bets": 803,
+      "wins": 419,
+      "losses": 384,
       "pushes": 0,
-      "win_pct": 0.669,
-      "units_won": 307.83,
-      "roi_pct": 22.68
+      "win_pct": 0.522,
+      "units_won": -49.25,
+      "roi_pct": -6.13,
+      "avg_edge_pct": 16.71
     },
     "totals": {
-      "bets": 94,
-      "wins": 46,
-      "losses": 44,
-      "pushes": 4,
-      "win_pct": 0.511,
-      "units_won": -0.96,
-      "roi_pct": -1.02
+      "bets": 678,
+      "wins": 336,
+      "losses": 316,
+      "pushes": 26,
+      "win_pct": 0.515,
+      "units_won": -10.43,
+      "roi_pct": -1.6,
+      "avg_edge_pct": 20.53
     }
   },
   "by_confidence": {
@@ -51,7 +54,8 @@
       "losses": 0,
       "win_pct": 0.0,
       "units_won": 0.0,
-      "roi_pct": 0.0
+      "roi_pct": 0.0,
+      "avg_edge_pct": 0.0
     },
     "LEAN": {
       "bets": 0,
@@ -59,755 +63,758 @@
       "losses": 0,
       "win_pct": 0.0,
       "units_won": 0.0,
-      "roi_pct": 0.0
+      "roi_pct": 0.0,
+      "avg_edge_pct": 0.0
     },
     "MEDIUM": {
-      "bets": 1030,
-      "wins": 564,
-      "losses": 466,
-      "win_pct": 0.548,
-      "units_won": 65.31,
-      "roi_pct": 6.34
+      "bets": 1101,
+      "wins": 528,
+      "losses": 573,
+      "win_pct": 0.48,
+      "units_won": -85.23,
+      "roi_pct": -7.74,
+      "avg_edge_pct": 13.91
     },
     "HIGH": {
-      "bets": 1247,
-      "wins": 745,
-      "losses": 502,
-      "win_pct": 0.597,
-      "units_won": 169.25,
-      "roi_pct": 13.57
+      "bets": 1332,
+      "wins": 641,
+      "losses": 691,
+      "win_pct": 0.481,
+      "units_won": -67.94,
+      "roi_pct": -5.1,
+      "avg_edge_pct": 20.17
     }
   },
   "equity_curve": [
     {
       "date": "2021-04-01",
-      "equity": 1002.28
+      "equity": 998.54
     },
     {
       "date": "2021-04-02",
-      "equity": 1004.54
+      "equity": 995.32
     },
     {
       "date": "2021-04-03",
-      "equity": 996.95
+      "equity": 992.2
     },
     {
       "date": "2021-04-04",
-      "equity": 1004.81
+      "equity": 996.87
     },
     {
       "date": "2021-04-05",
-      "equity": 1008.87
+      "equity": 1005.39
     },
     {
       "date": "2021-04-06",
-      "equity": 1018.49
+      "equity": 1013.43
     },
     {
       "date": "2021-04-07",
-      "equity": 1021.4
+      "equity": 1014.48
     },
     {
       "date": "2021-04-08",
-      "equity": 1023.34
+      "equity": 1018.91
     },
     {
       "date": "2021-04-09",
-      "equity": 1020.96
+      "equity": 1020.29
     },
     {
       "date": "2021-04-10",
-      "equity": 1024.15
+      "equity": 1017.38
     },
     {
       "date": "2021-04-11",
-      "equity": 1024.75
+      "equity": 1011.9
     },
     {
       "date": "2021-04-12",
-      "equity": 1028.45
+      "equity": 1008.33
     },
     {
       "date": "2021-04-13",
-      "equity": 1031.37
+      "equity": 1011.95
     },
     {
       "date": "2021-04-14",
-      "equity": 1027.87
+      "equity": 1017.68
     },
     {
       "date": "2021-04-15",
-      "equity": 1027.2
+      "equity": 1012.55
     },
     {
       "date": "2021-04-16",
-      "equity": 1023.37
+      "equity": 1005.86
     },
     {
       "date": "2021-04-17",
-      "equity": 1024.27
+      "equity": 1008.78
     },
     {
       "date": "2021-04-18",
-      "equity": 1024.29
+      "equity": 1010.56
     },
     {
       "date": "2021-04-19",
-      "equity": 1032.74
+      "equity": 1018.25
     },
     {
       "date": "2021-04-20",
-      "equity": 1034.64
+      "equity": 1018.35
     },
     {
       "date": "2021-04-21",
-      "equity": 1038.01
+      "equity": 1020.06
     },
     {
       "date": "2021-04-22",
-      "equity": 1041.54
+      "equity": 1022.02
     },
     {
       "date": "2021-04-23",
-      "equity": 1040.13
+      "equity": 1020.15
     },
     {
       "date": "2021-04-24",
-      "equity": 1040.09
+      "equity": 1025.11
     },
     {
       "date": "2021-04-25",
-      "equity": 1033.72
+      "equity": 1021.91
     },
     {
       "date": "2021-04-26",
-      "equity": 1034.89
+      "equity": 1021.21
     },
     {
       "date": "2021-04-27",
-      "equity": 1039.24
+      "equity": 1026.26
     },
     {
       "date": "2021-04-28",
-      "equity": 1037.98
+      "equity": 1019.41
     },
     {
       "date": "2021-04-29",
-      "equity": 1038.86
+      "equity": 1021.01
     },
     {
       "date": "2021-04-30",
-      "equity": 1040.34
+      "equity": 1023.93
     },
     {
       "date": "2021-05-01",
-      "equity": 1043.14
+      "equity": 1017.3
     },
     {
       "date": "2021-05-02",
-      "equity": 1046.1
+      "equity": 1018.79
     },
     {
       "date": "2021-05-03",
-      "equity": 1048.26
+      "equity": 1018.74
     },
     {
       "date": "2021-05-04",
-      "equity": 1051.21
+      "equity": 1018.94
     },
     {
       "date": "2021-05-05",
-      "equity": 1053.82
+      "equity": 1012.28
     },
     {
       "date": "2021-05-06",
-      "equity": 1056.94
+      "equity": 1011.94
     },
     {
       "date": "2021-05-07",
-      "equity": 1059.06
+      "equity": 1014.59
     },
     {
       "date": "2021-05-08",
-      "equity": 1060.84
+      "equity": 1012.57
     },
     {
       "date": "2021-05-09",
-      "equity": 1064.03
+      "equity": 1012.8
     },
     {
       "date": "2021-05-10",
-      "equity": 1063.63
+      "equity": 1011.57
     },
     {
       "date": "2021-05-11",
-      "equity": 1066.88
+      "equity": 1010.72
     },
     {
       "date": "2021-05-12",
-      "equity": 1068.19
+      "equity": 1009.59
     },
     {
       "date": "2021-05-13",
-      "equity": 1069.56
+      "equity": 1012.72
     },
     {
       "date": "2021-05-14",
-      "equity": 1073.23
+      "equity": 1010.36
     },
     {
       "date": "2021-05-15",
-      "equity": 1075.84
+      "equity": 1013.75
     },
     {
       "date": "2021-05-16",
-      "equity": 1077.37
+      "equity": 1007.28
     },
     {
       "date": "2021-05-17",
-      "equity": 1076.87
+      "equity": 1008.25
     },
     {
       "date": "2021-05-18",
-      "equity": 1081.95
+      "equity": 1009.15
     },
     {
       "date": "2021-05-19",
-      "equity": 1085.7
+      "equity": 1005.5
     },
     {
       "date": "2021-05-20",
-      "equity": 1090.23
+      "equity": 1007.54
     },
     {
       "date": "2021-05-21",
-      "equity": 1094.8
+      "equity": 1010.02
     },
     {
       "date": "2021-05-22",
-      "equity": 1094.66
+      "equity": 1004.17
     },
     {
       "date": "2021-05-23",
-      "equity": 1098.96
+      "equity": 1002.05
     },
     {
       "date": "2021-05-24",
-      "equity": 1097.43
+      "equity": 1000.4
     },
     {
       "date": "2021-05-25",
-      "equity": 1100.59
+      "equity": 999.15
     },
     {
       "date": "2021-05-26",
-      "equity": 1104.64
+      "equity": 1004.21
     },
     {
       "date": "2021-05-27",
-      "equity": 1108.03
+      "equity": 1007.32
     },
     {
       "date": "2021-05-28",
-      "equity": 1108.36
+      "equity": 1010.75
     },
     {
       "date": "2021-05-29",
-      "equity": 1102.89
+      "equity": 1011.49
     },
     {
       "date": "2021-05-30",
-      "equity": 1098.18
+      "equity": 1012.96
     },
     {
       "date": "2021-05-31",
-      "equity": 1095.51
+      "equity": 1013.63
     },
     {
       "date": "2021-06-01",
-      "equity": 1098.52
+      "equity": 1012.39
     },
     {
       "date": "2021-06-02",
-      "equity": 1100.99
+      "equity": 1014.95
     },
     {
       "date": "2021-06-03",
-      "equity": 1095.07
+      "equity": 1010.95
     },
     {
       "date": "2021-06-04",
-      "equity": 1099.25
+      "equity": 1013.04
     },
     {
       "date": "2021-06-05",
-      "equity": 1099.25
+      "equity": 1007.03
     },
     {
       "date": "2021-06-06",
-      "equity": 1102.98
+      "equity": 1004.31
     },
     {
       "date": "2021-06-07",
-      "equity": 1100.98
+      "equity": 1003.31
     },
     {
       "date": "2021-06-08",
-      "equity": 1101.53
+      "equity": 997.37
     },
     {
       "date": "2021-06-09",
-      "equity": 1114.57
+      "equity": 1002.41
     },
     {
       "date": "2021-06-10",
-      "equity": 1111.39
+      "equity": 1002.41
     },
     {
       "date": "2021-06-11",
-      "equity": 1112.46
+      "equity": 1000.46
     },
     {
       "date": "2021-06-12",
-      "equity": 1109.98
+      "equity": 995.61
     },
     {
       "date": "2021-06-13",
-      "equity": 1110.94
+      "equity": 992.1
     },
     {
       "date": "2021-06-14",
-      "equity": 1118.11
+      "equity": 998.15
     },
     {
       "date": "2021-06-15",
-      "equity": 1123.68
+      "equity": 997.7
     },
     {
       "date": "2021-06-16",
-      "equity": 1128.88
+      "equity": 1001.2
     },
     {
       "date": "2021-06-17",
-      "equity": 1125.3
+      "equity": 996.25
     },
     {
       "date": "2021-06-18",
-      "equity": 1122.62
+      "equity": 992.05
     },
     {
       "date": "2021-06-19",
-      "equity": 1125.33
+      "equity": 992.57
     },
     {
       "date": "2021-06-20",
-      "equity": 1130.19
+      "equity": 995.04
     },
     {
       "date": "2021-06-21",
-      "equity": 1127.43
+      "equity": 995.17
     },
     {
       "date": "2021-06-22",
-      "equity": 1129.6
+      "equity": 998.28
     },
     {
       "date": "2021-06-23",
-      "equity": 1132.16
+      "equity": 1000.49
     },
     {
       "date": "2021-06-24",
-      "equity": 1135.35
+      "equity": 1002.3
     },
     {
       "date": "2021-06-25",
-      "equity": 1133.68
+      "equity": 1001.18
     },
     {
       "date": "2021-06-26",
-      "equity": 1134.31
+      "equity": 1002.36
     },
     {
       "date": "2021-06-27",
-      "equity": 1140.88
+      "equity": 1005.56
     },
     {
       "date": "2021-06-28",
-      "equity": 1139.1
+      "equity": 1006.16
     },
     {
       "date": "2021-06-29",
-      "equity": 1142.0
+      "equity": 1004.81
     },
     {
       "date": "2021-06-30",
-      "equity": 1134.15
+      "equity": 1001.07
     },
     {
       "date": "2021-07-01",
-      "equity": 1134.84
+      "equity": 1004.58
     },
     {
       "date": "2021-07-02",
-      "equity": 1138.34
+      "equity": 1000.19
     },
     {
       "date": "2021-07-03",
-      "equity": 1137.68
+      "equity": 997.83
     },
     {
       "date": "2021-07-04",
-      "equity": 1146.8
+      "equity": 1000.76
     },
     {
       "date": "2021-07-05",
-      "equity": 1153.26
+      "equity": 1005.83
     },
     {
       "date": "2021-07-06",
-      "equity": 1152.26
+      "equity": 999.32
     },
     {
       "date": "2021-07-07",
-      "equity": 1155.78
+      "equity": 999.65
     },
     {
       "date": "2021-07-08",
-      "equity": 1157.33
+      "equity": 1001.02
     },
     {
       "date": "2021-07-09",
-      "equity": 1155.77
+      "equity": 995.71
     },
     {
       "date": "2021-07-10",
-      "equity": 1157.56
+      "equity": 988.89
     },
     {
       "date": "2021-07-11",
-      "equity": 1155.52
+      "equity": 982.8
     },
     {
       "date": "2021-07-16",
-      "equity": 1156.54
+      "equity": 976.7
     },
     {
       "date": "2021-07-17",
-      "equity": 1153.87
+      "equity": 974.45
     },
     {
       "date": "2021-07-18",
-      "equity": 1154.62
+      "equity": 974.36
     },
     {
       "date": "2021-07-19",
-      "equity": 1151.98
+      "equity": 971.54
     },
     {
       "date": "2021-07-20",
-      "equity": 1154.3
+      "equity": 975.41
     },
     {
       "date": "2021-07-21",
-      "equity": 1159.98
+      "equity": 976.51
     },
     {
       "date": "2021-07-22",
-      "equity": 1163.14
+      "equity": 977.95
     },
     {
       "date": "2021-07-23",
-      "equity": 1159.13
+      "equity": 973.83
     },
     {
       "date": "2021-07-24",
-      "equity": 1161.03
+      "equity": 974.11
     },
     {
       "date": "2021-07-25",
-      "equity": 1160.57
+      "equity": 975.96
     },
     {
       "date": "2021-07-26",
-      "equity": 1162.31
+      "equity": 974.97
     },
     {
       "date": "2021-07-27",
-      "equity": 1170.1
+      "equity": 975.23
     },
     {
       "date": "2021-07-28",
-      "equity": 1177.67
+      "equity": 980.07
     },
     {
       "date": "2021-07-29",
-      "equity": 1173.83
+      "equity": 977.56
     },
     {
       "date": "2021-07-30",
-      "equity": 1178.7
+      "equity": 976.61
     },
     {
       "date": "2021-07-31",
-      "equity": 1182.89
+      "equity": 975.85
     },
     {
       "date": "2021-08-01",
-      "equity": 1184.96
+      "equity": 972.38
     },
     {
       "date": "2021-08-02",
-      "equity": 1184.03
+      "equity": 972.36
     },
     {
       "date": "2021-08-03",
-      "equity": 1183.79
+      "equity": 970.94
     },
     {
       "date": "2021-08-04",
-      "equity": 1183.44
+      "equity": 967.85
     },
     {
       "date": "2021-08-05",
-      "equity": 1183.94
+      "equity": 966.61
     },
     {
       "date": "2021-08-06",
-      "equity": 1181.11
+      "equity": 964.66
     },
     {
       "date": "2021-08-07",
-      "equity": 1187.13
+      "equity": 968.49
     },
     {
       "date": "2021-08-08",
-      "equity": 1184.01
+      "equity": 961.23
     },
     {
       "date": "2021-08-09",
-      "equity": 1184.68
+      "equity": 957.23
     },
     {
       "date": "2021-08-10",
-      "equity": 1191.88
+      "equity": 953.43
     },
     {
       "date": "2021-08-11",
-      "equity": 1192.9
+      "equity": 954.93
     },
     {
       "date": "2021-08-12",
-      "equity": 1191.81
+      "equity": 956.64
     },
     {
       "date": "2021-08-13",
-      "equity": 1197.87
+      "equity": 964.42
     },
     {
       "date": "2021-08-14",
-      "equity": 1204.82
+      "equity": 964.2
     },
     {
       "date": "2021-08-15",
-      "equity": 1210.43
+      "equity": 967.12
     },
     {
       "date": "2021-08-16",
-      "equity": 1206.53
+      "equity": 962.87
     },
     {
       "date": "2021-08-17",
-      "equity": 1209.57
+      "equity": 966.76
     },
     {
       "date": "2021-08-18",
-      "equity": 1213.35
+      "equity": 974.95
     },
     {
       "date": "2021-08-19",
-      "equity": 1216.48
+      "equity": 981.63
     },
     {
       "date": "2021-08-20",
-      "equity": 1216.03
+      "equity": 980.71
     },
     {
       "date": "2021-08-21",
-      "equity": 1212.08
+      "equity": 976.6
     },
     {
       "date": "2021-08-22",
-      "equity": 1211.44
+      "equity": 978.76
     },
     {
       "date": "2021-08-23",
-      "equity": 1213.65
+      "equity": 978.08
     },
     {
       "date": "2021-08-24",
-      "equity": 1213.4
+      "equity": 975.46
     },
     {
       "date": "2021-08-25",
-      "equity": 1219.16
+      "equity": 977.16
     },
     {
       "date": "2021-08-26",
-      "equity": 1215.32
+      "equity": 975.06
     },
     {
       "date": "2021-08-27",
-      "equity": 1222.66
+      "equity": 983.71
     },
     {
       "date": "2021-08-28",
-      "equity": 1226.05
+      "equity": 986.37
     },
     {
       "date": "2021-08-29",
-      "equity": 1218.96
+      "equity": 976.69
     },
     {
       "date": "2021-08-30",
-      "equity": 1220.79
+      "equity": 974.81
     },
     {
       "date": "2021-08-31",
-      "equity": 1221.93
+      "equity": 975.23
     },
     {
       "date": "2021-09-01",
-      "equity": 1220.11
+      "equity": 972.69
     },
     {
       "date": "2021-09-02",
-      "equity": 1220.9
+      "equity": 971.76
     },
     {
       "date": "2021-09-03",
-      "equity": 1224.77
+      "equity": 970.32
     },
     {
       "date": "2021-09-04",
-      "equity": 1223.04
+      "equity": 969.51
     },
     {
       "date": "2021-09-05",
-      "equity": 1215.21
+      "equity": 959.06
     },
     {
       "date": "2021-09-06",
-      "equity": 1220.29
+      "equity": 963.57
     },
     {
       "date": "2021-09-07",
-      "equity": 1224.8
+      "equity": 965.0
     },
     {
       "date": "2021-09-08",
-      "equity": 1226.1
+      "equity": 960.56
     },
     {
       "date": "2021-09-09",
-      "equity": 1229.98
+      "equity": 962.29
     },
     {
       "date": "2021-09-10",
-      "equity": 1228.47
+      "equity": 963.11
     },
     {
       "date": "2021-09-11",
-      "equity": 1230.9
+      "equity": 963.43
     },
     {
       "date": "2021-09-12",
-      "equity": 1238.53
+      "equity": 964.17
     },
     {
       "date": "2021-09-13",
-      "equity": 1235.7
+      "equity": 953.86
     },
     {
       "date": "2021-09-14",
-      "equity": 1225.7
+      "equity": 944.3
     },
     {
       "date": "2021-09-15",
-      "equity": 1230.63
+      "equity": 945.89
     },
     {
       "date": "2021-09-16",
-      "equity": 1228.63
+      "equity": 935.31
     },
     {
       "date": "2021-09-17",
-      "equity": 1228.63
+      "equity": 930.33
     },
     {
       "date": "2021-09-18",
-      "equity": 1225.46
+      "equity": 914.44
     },
     {
       "date": "2021-09-19",
-      "equity": 1226.53
+      "equity": 909.71
     },
     {
       "date": "2021-09-20",
-      "equity": 1224.53
+      "equity": 896.71
     },
     {
       "date": "2021-09-21",
-      "equity": 1226.16
+      "equity": 883.77
     },
     {
       "date": "2021-09-22",
-      "equity": 1229.88
+      "equity": 882.18
     },
     {
       "date": "2021-09-23",
-      "equity": 1227.48
+      "equity": 884.58
     },
     {
       "date": "2021-09-25",
-      "equity": 1231.84
+      "equity": 881.42
     },
     {
       "date": "2021-09-26",
-      "equity": 1231.16
+      "equity": 870.91
     },
     {
       "date": "2021-09-27",
-      "equity": 1227.83
+      "equity": 867.62
     },
     {
       "date": "2021-09-28",
-      "equity": 1212.49
+      "equity": 851.58
     },
     {
       "date": "2021-09-29",
-      "equity": 1214.16
+      "equity": 848.37
     },
     {
       "date": "2021-09-30",
-      "equity": 1216.26
+      "equity": 844.72
     },
     {
       "date": "2021-10-01",
-      "equity": 1227.26
+      "equity": 849.39
     },
     {
       "date": "2021-10-02",
-      "equity": 1235.99
+      "equity": 851.94
     },
     {
       "date": "2021-10-03",
-      "equity": 1234.57
+      "equity": 846.83
     }
   ],
   "meta": {
     "season": 2021,
     "games_evaluated": 1901,
-    "games_missing_odds": 24,
+    "games_missing_odds": 170,
     "model": "prior-year-baseline",
     "baseline_season": 2019,
     "source": "real"

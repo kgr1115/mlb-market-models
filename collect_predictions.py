@@ -132,7 +132,8 @@ def _pick_side(market: str, pick: str) -> str:
     return pick.split()[0]
 
 
-def _collect_season(season, baseline_season, writer):
+def _collect_season(season, baseline_season, writer,
+                    with_weather=False, ump_rpg_lookup=None):
     games = load_season_games(season)
     odds = load_odds_for_season(season)
     baseline = load_baseline(baseline_season)
@@ -141,6 +142,26 @@ def _collect_season(season, baseline_season, writer):
     season_rpg = LEAGUE_RPG.get(season, 4.50)
     rolling = _build_rolling_form(games, league_rpg=season_rpg)
     dh_set = _build_doubleheader_set(games)
+
+    if with_weather:
+        # Prewarm weather cache in bulk (range-fetch: 1 call per venue per
+        # season rather than 1 per venue per day). Keeps the feature-signal
+        # corpus aligned with what the production backtest produces.
+        from data.weather_history import prewarm_range, save_cache as _save_wx
+        by_date: dict[str, list[str]] = {}
+        for g in games:
+            if g.game_time_utc is None:
+                continue
+            ds = g.game_time_utc.strftime("%Y-%m-%d")
+            by_date.setdefault(ds, []).append(g.home_team)
+        for d in by_date:
+            by_date[d] = sorted(set(by_date[d]))
+        if by_date:
+            total = sum(len(v) for v in by_date.values())
+            log.info("weather: prewarming %d (venue,date) pairs", total)
+            ok = prewarm_range(by_date)
+            log.info("weather: %d/%d cache populated", ok, total)
+            _save_wx()
 
     n_games = n_missing = n_rows = 0
     for game in games:
@@ -158,7 +179,9 @@ def _collect_season(season, baseline_season, writer):
         _apply_rolling_adjust(away, a_rs, a_ra)
         md = _build_market_data(od)
         ctx = _build_game_context(game, league_run_drift=drift,
-                                  doubleheader_set=dh_set)
+                                  doubleheader_set=dh_set,
+                                  with_weather=with_weather,
+                                  ump_rpg_lookup=ump_rpg_lookup)
 
         preds = predict_all(home, away, ctx, md)
         for market_name, pred in preds.items():
@@ -213,7 +236,44 @@ def _collect_season(season, baseline_season, writer):
     return n_rows
 
 
+def _build_cross_season_ump_lookup() -> dict:
+    """Construct a single ump-career-R/G lookup spanning all corpus seasons
+    plus a prior season (2017) so early-2018 games have career priors.
+
+    The cache is expected to already be populated via
+    ``data/umpire_history.py:prewarm_season`` (one HTTP call per season).
+    If the cache is missing entries for a season we best-effort fetch
+    them now so the run is self-contained.
+    """
+    from data.umpire_history import (
+        prewarm_season,
+        save_cache as _save_ump,
+        build_ump_rpg_lookup,
+    )
+
+    # 2017 is a prior-year; 2020 is intentionally skipped to match SEASON_PAIRS.
+    all_seasons = [2017] + sorted({s for s, _ in SEASON_PAIRS})
+    all_games = []
+    for s in all_seasons:
+        prewarm_season(s)  # no-op if already cached
+        all_games.extend(load_season_games(s))
+    _save_ump()
+
+    lookup = build_ump_rpg_lookup(all_games)
+    n_pop = sum(1 for v in lookup.values() if v is not None)
+    log.info("ump: built career-R/G lookup over %d seasons, %d/%d games populated",
+             len(all_seasons), n_pop, len(lookup))
+    return lookup
+
+
 def main():
+    with_weather = "--weather" in sys.argv
+    with_ump = "--ump" in sys.argv
+
+    ump_rpg_lookup = None
+    if with_ump:
+        ump_rpg_lookup = _build_cross_season_ump_lookup()
+
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     total_rows = 0
     with OUT_PATH.open("w", newline="") as f:
@@ -221,10 +281,13 @@ def main():
         writer.writeheader()
         for season, base in SEASON_PAIRS:
             log.info("=" * 60)
-            log.info("Collecting ungated predictions: season=%d baseline=%d",
-                     season, base)
+            log.info("Collecting ungated predictions: season=%d baseline=%d"
+                     " (weather=%s ump=%s)",
+                     season, base, with_weather, with_ump)
             log.info("=" * 60)
-            total_rows += _collect_season(season, base, writer)
+            total_rows += _collect_season(season, base, writer,
+                                          with_weather=with_weather,
+                                          ump_rpg_lookup=ump_rpg_lookup)
     log.info("Wrote %s (%d rows)", OUT_PATH, total_rows)
     print(f"\nUngated prediction corpus written: {OUT_PATH}")
     print(f"Rows: {total_rows}")

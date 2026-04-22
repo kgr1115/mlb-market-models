@@ -247,17 +247,116 @@ def get_historical_weather(home_team: str,
     )
 
 
-def prewarm_range(home_teams_by_date: dict[str, list[str]]) -> int:
+def _split_hourly_by_date(hourly: dict) -> dict[str, dict]:
+    """Split a multi-day Open-Meteo 'hourly' response into per-day dicts
+    using the same shape _fetch_day returns. Keyed by YYYY-MM-DD."""
+    times  = hourly.get("time") or []
+    temps  = hourly.get("temperature_2m") or []
+    hums   = hourly.get("relative_humidity_2m") or []
+    winds  = hourly.get("wind_speed_10m") or []
+    wdirs  = hourly.get("wind_direction_10m") or []
+    by_day: dict[str, dict] = {}
+    for i, ts in enumerate(times):
+        date_str = ts[:10]  # ISO-8601 "YYYY-MM-DDTHH:MM"
+        d = by_day.setdefault(date_str, {
+            "time": [], "temperature_2m": [], "relative_humidity_2m": [],
+            "wind_speed_10m": [], "wind_direction_10m": [],
+        })
+        d["time"].append(ts)
+        d["temperature_2m"].append(temps[i] if i < len(temps) else None)
+        d["relative_humidity_2m"].append(hums[i] if i < len(hums) else None)
+        d["wind_speed_10m"].append(winds[i] if i < len(winds) else None)
+        d["wind_direction_10m"].append(wdirs[i] if i < len(wdirs) else None)
+    return by_day
+
+
+def _fetch_range(home_team: str, start_date: str, end_date: str,
+                 dates_needed: set[str]) -> int:
+    """Fetch a whole date range for one venue in a single Open-Meteo call,
+    then populate the per-day cache from the response. `dates_needed`
+    marks which individual days should count as 'successful fetches'.
+    Returns the count of newly-populated cache keys that match dates_needed.
+    """
+    venue = VENUES.get(home_team)
+    if not venue:
+        return 0
+    lat, lon, _ = venue
+
+    params = {
+        "latitude":  f"{lat:.4f}",
+        "longitude": f"{lon:.4f}",
+        "start_date": start_date,
+        "end_date":   end_date,
+        "hourly": ("temperature_2m,relative_humidity_2m,"
+                   "wind_speed_10m,wind_direction_10m"),
+        "temperature_unit": "fahrenheit",
+        "wind_speed_unit":  "mph",
+        "timezone": "UTC",
+    }
+    url = f"{_URL}?{urllib.parse.urlencode(params)}"
+
+    cache = _load_cache()
+    global _dirty
+    try:
+        data = _http_get_json(url, timeout=45.0)
+    except Exception as e:
+        log.warning("weather_history: range fetch failed %s %s..%s: %s",
+                    home_team, start_date, end_date, e)
+        return 0
+
+    hourly = data.get("hourly") or {}
+    if not hourly.get("time"):
+        return 0
+
+    populated = 0
+    for date_str, day_hourly in _split_hourly_by_date(hourly).items():
+        cache_key = f"{home_team}|{date_str}"
+        if cache_key not in cache:
+            cache[cache_key] = {"ok": True, "data": day_hourly}
+            _dirty = True
+            if date_str in dates_needed:
+                populated += 1
+    return populated
+
+
+def prewarm_range(home_teams_by_date: dict[str, list[str]],
+                  save_every: int = 5) -> int:
     """Bulk-prefetch weather for many (date, team) pairs.
 
     Pass a {"YYYY-MM-DD": [home_team, ...]} mapping — useful from the
     backtest harness to front-load the API hits before the main loop.
-    Returns the count of successful fetches.
+    Returns the count of newly-populated cache keys.
+
+    Implementation: groups dates by team and issues ONE range query per
+    team covering [min_date .. max_date]. That collapses ~2000 daily
+    calls per season down to ~30 (one per home venue). Any cache keys
+    already present are skipped — re-running is a no-op.
+
+    `save_every` flushes the on-disk cache every N teams so an interrupt
+    doesn't lose all in-memory progress.
     """
-    ok = 0
+    # Invert: team -> set of dates it appears on
+    dates_by_team: dict[str, set[str]] = {}
     for date_str, teams in home_teams_by_date.items():
         for team in teams:
-            if _fetch_day(team, date_str):
-                ok += 1
+            dates_by_team.setdefault(team, set()).add(date_str)
+
+    cache = _load_cache()
+    ok = 0
+    processed = 0
+    for team in sorted(dates_by_team):
+        dates_needed = dates_by_team[team]
+        # Skip dates already cached for this team
+        missing = {d for d in dates_needed
+                   if f"{team}|{d}" not in cache}
+        if not missing:
+            continue
+        start = min(missing)
+        end   = max(missing)
+        populated = _fetch_range(team, start, end, missing)
+        ok += populated
+        processed += 1
+        if processed % save_every == 0:
+            save_cache()
     save_cache()
     return ok

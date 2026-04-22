@@ -595,7 +595,7 @@ def _summarize_game(game: dict, include_detail: bool = False) -> dict:
     # --- Per-book lines + best-price recommendations -----------------------
     per_book = game.get("per_book") or {}
     books_out: dict[str, dict] = {}
-    for b in ("draftkings", "fanduel", "pinnacle"):
+    for b in ("draftkings", "fanduel"):
         md = per_book.get(b)
         if md is not None:
             books_out[b] = _book_market_dict(md)
@@ -609,7 +609,7 @@ def _summarize_game(game: dict, include_detail: bool = False) -> dict:
     # to show line movement while the game is still on the board.
     opening_per_book = game.get("opening_per_book") or {}
     books_starting: dict[str, dict] = {}
-    for b in ("draftkings", "fanduel", "pinnacle"):
+    for b in ("draftkings", "fanduel"):
         md = opening_per_book.get(b)
         if md is not None:
             books_starting[b] = _book_market_dict(md)
@@ -618,12 +618,11 @@ def _summarize_game(game: dict, include_detail: bool = False) -> dict:
     out["books_starting"] = books_starting
 
     # Consensus "starting market" — mirrors `market` above but with the
-    # earliest known values. Prefer DK, fall back to FanDuel, then
-    # Pinnacle. If no opener is known, fall back to whatever
-    # opener-shaped fields live on the current MarketData
-    # (`opener_home_ml_odds`, `opener_total`).
+    # earliest known values. Prefer DK, fall back to FanDuel. If no
+    # opener is known, fall back to whatever opener-shaped fields live
+    # on the current MarketData (`opener_home_ml_odds`, `opener_total`).
     start_md = None
-    for b in ("draftkings", "fanduel", "pinnacle"):
+    for b in ("draftkings", "fanduel"):
         if opening_per_book.get(b) is not None:
             start_md = opening_per_book[b]
             break

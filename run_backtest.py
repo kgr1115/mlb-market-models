@@ -5,7 +5,16 @@ Usage:
     python run_backtest.py                   # default: season=2021, baseline=2019
     python run_backtest.py 2022              # season=2022, baseline=2021
     python run_backtest.py 2022 2019         # season=2022, baseline=2019
+    python run_backtest.py 2026 2025         # current season (livecache only)
+    python run_backtest.py 2026 2025 --through 2026-04-21
+                                             # only grade games up to that date
     python run_backtest.py 2022 2019 --weather   # include historical weather
+    python run_backtest.py 2026 2025 --refresh-games
+                                             # force MLB Stats API re-fetch
+                                             # (bypass historical_games cache)
+    python run_backtest.py 2025 2024 --no-livecache
+                                             # community dataset only (revert
+                                             # behavior before this change)
 
 Writes JSON to web/backend/backtest_results.json (stable path the API loads).
 
@@ -13,6 +22,15 @@ Writes JSON to web/backend/backtest_results.json (stable path the API loads).
 (see data/weather_history.py). First run prewarms the cache — expect a
 couple thousand HTTP requests for a full season; subsequent runs read
 from data/cache/weather_history.json.
+
+Season dispatch
+---------------
+  - 2018-2019: Sportsbook Reviews Online XLSX
+  - 2021-2024: community dataset
+  - 2025:      community (through 2025-08-16) + livecache (after)
+  - 2026+:     live OddsCache replay
+See ``run_multi_backtest.load_odds_for_season`` for the authoritative
+dispatcher — this driver just delegates.
 """
 from __future__ import annotations
 
@@ -21,9 +39,10 @@ import sys
 from pathlib import Path
 
 from backtest import (
-    load_season_games, load_sbr_season_odds, load_baseline,
+    load_season_games, load_baseline,
     run_backtest, write_results_json,
 )
+from run_multi_backtest import load_odds_for_season
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,12 +53,32 @@ log = logging.getLogger("run_backtest")
 
 def main(argv: list[str]) -> int:
     with_weather = False
+    use_livecache = True
+    refresh_games = False
+    through_date: "str | None" = None
     positional: list[str] = []
-    for arg in argv[1:]:
+
+    i = 1
+    while i < len(argv):
+        arg = argv[i]
         if arg == "--weather":
             with_weather = True
-        else:
-            positional.append(arg)
+            i += 1
+            continue
+        if arg == "--no-livecache":
+            use_livecache = False
+            i += 1
+            continue
+        if arg == "--refresh-games":
+            refresh_games = True
+            i += 1
+            continue
+        if arg == "--through":
+            through_date = argv[i + 1]
+            i += 2
+            continue
+        positional.append(arg)
+        i += 1
 
     season = int(positional[0]) if len(positional) >= 1 else 2021
     # 2020 was COVID-shortened (60 games, wildly non-representative), so when
@@ -52,17 +91,24 @@ def main(argv: list[str]) -> int:
         baseline_season = season - 1
 
     log.info("=" * 60)
-    log.info("Backtest: season=%d   baseline=%d", season, baseline_season)
+    log.info("Backtest: season=%d   baseline=%d   through=%s   livecache=%s",
+             season, baseline_season, through_date, use_livecache)
     log.info("=" * 60)
 
     log.info("[1/4] Loading %d schedule + final scores ...", season)
-    games = load_season_games(season)
+    games = load_season_games(season, use_cache=not refresh_games)
     log.info("      loaded %d historical games", len(games))
 
-    log.info("[2/4] Loading %d closing odds from Sportsbook Reviews Online ...",
+    log.info("[2/4] Loading %d closing odds (auto-dispatch by season) ...",
              season)
-    odds = load_sbr_season_odds(season)
+    odds = load_odds_for_season(season, use_livecache=use_livecache)
     log.info("      loaded %d odds rows", len(odds))
+
+    if through_date is not None:
+        games = [g for g in games if g.game_date <= through_date]
+        odds = {ev: o for ev, o in odds.items() if o.game_date <= through_date}
+        log.info("      --through %s: %d games, %d odds rows",
+                 through_date, len(games), len(odds))
 
     log.info("[3/4] Loading %d baseline team + pitcher stats ...",
              baseline_season)
