@@ -1,4 +1,4 @@
-# MLB Betting Predictor
+# MLB Market Models
 
 A Python + FastAPI + React project that predicts daily MLB bets across three markets — **Moneyline**, **Run Line**, and **Totals (Over/Under)** — scored with per-pick model probability, market-implied probability, edge, EV, and a 0–100 confidence bar.
 
