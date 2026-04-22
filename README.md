@@ -4,6 +4,8 @@ A Python + FastAPI + React project that predicts daily MLB bets across three mar
 
 The project was built end-to-end with AI assistance: research → feature design → implementation → backtest harness → honest diagnostics → UI. The repository is as much a record of the *process* — what worked, what didn't, and why — as it is a model.
 
+> **Built by [Kyle Rauch](https://github.com/kgr1115)** · Cincinnati, OH · [kyle.g.rauch@gmail.com](mailto:kyle.g.rauch@gmail.com) · [LinkedIn](https://www.linkedin.com/in/kyle-rauch-b2984a75/)
+> AI-collaborative project (architecture and methodology by me; implementation by Claude). Looking for Solutions Engineer / TAM / Implementation roles at AI-forward SaaS companies.
 ---
 
 ## Current status (2026-04-21)
